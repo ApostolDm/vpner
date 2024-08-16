@@ -1,0 +1,11 @@
+dnsServer:
+  port: 53
+  doh-servers:
+    - https://cloudflare-dns.com/dns-query
+    - https://dns.google/dns-query
+  doh-resolve-ttl: 5
+  dns-resolvers:
+    - 8.8.8.8:53
+    - 1.1.1.1:53
+  max-connections: 100
+  verbose: true
