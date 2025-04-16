@@ -2,28 +2,24 @@ package network
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/ApostolDmitry/vpner/internal/dohclient"
 	"github.com/miekg/dns"
 )
 
-const (
-	defaultChainName = "vpner_unblock"
+var (
+	ipsetCache   = make(map[string]*IPSet)
+	ipsetCacheMu sync.Mutex
 )
 
 type ipRuleManager struct {
-	chainName      string
 	unblockManager *UnblockManager
 	resolver       *dohclient.Resolver
 }
 
-func NewIpRuleManager(chainName string, unblockManager *UnblockManager, resolver *dohclient.Resolver) *ipRuleManager {
-	if chainName == "" {
-		chainName = defaultChainName
-	}
-
+func NewIpRuleManager(unblockManager *UnblockManager, resolver *dohclient.Resolver) *ipRuleManager {
 	return &ipRuleManager{
-		chainName:      chainName,
 		unblockManager: unblockManager,
 		resolver:       resolver,
 	}
@@ -34,7 +30,6 @@ func (m *ipRuleManager) CheckIPsInIpset(domain string) error {
 	if !ok {
 		return nil
 	}
-
 	ips, err := m.resolver.ResolveDomain(domain, dns.TypeA)
 	if err != nil {
 		return fmt.Errorf("failed to resolve domain %q: %w", domain, err)
@@ -42,16 +37,17 @@ func (m *ipRuleManager) CheckIPsInIpset(domain string) error {
 	if len(ips) == 0 {
 		return nil
 	}
-	fmt.Println(domain)
-	fmt.Println(ips)
-	ipsetName := m.chainName + "-" + vpnType + "-" + chainName
-	set, err := NewIPset(ipsetName, "hash:ip", &Params{})
+	ipsetName, err := IpsetName(vpnType, chainName)
 	if err != nil {
-		return fmt.Errorf("failed to create ipset %q: %w", ipsetName, err)
+		return fmt.Errorf("failed to get ipset name for %q: %w", domain, err)
+	}
+	set, err := obtainOrCreateIPSet(ipsetName)
+	if err != nil {
+		return fmt.Errorf("failed to prepare ipset %q: %w", ipsetName, err)
 	}
 
 	for _, ip := range ips {
-		if err := set.Add(ip.String(), 20000); err != nil {
+		if err := set.AddComment(ip.String(), domain, 20000); err != nil {
 			return fmt.Errorf("failed to add IP %s with comment to ipset: %w", ip, err)
 		}
 	}
@@ -59,6 +55,28 @@ func (m *ipRuleManager) CheckIPsInIpset(domain string) error {
 	return nil
 }
 
-func (m *ipRuleManager) CleanList() error {
-	return nil
+func obtainOrCreateIPSet(name string) (*IPSet, error) {
+	ipsetCacheMu.Lock()
+	defer ipsetCacheMu.Unlock()
+
+	if set, ok := ipsetCache[name]; ok {
+		return set, nil
+	}
+	set, err := NewIPset(name, "hash:net", &Params{Timeout: DefaultIPSetTimeout, WithComments: true})
+	if err != nil {
+		return nil, err
+	}
+	ipsetCache[name] = set
+	return set, nil
+}
+
+func cleanupDomainEntries(vpnType, chainName, domain string) error {
+	if domain == "" {
+		return nil
+	}
+	ipsetName, err := IpsetName(vpnType, chainName)
+	if err != nil {
+		return err
+	}
+	return removeEntriesByComment(ipsetName, domain)
 }

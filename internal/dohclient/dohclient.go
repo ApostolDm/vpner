@@ -12,15 +12,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ApostolDmitry/vpner/internal/utils"
+	"github.com/ApostolDmitry/vpner/internal/common/dnsresolver"
 	"github.com/miekg/dns"
 )
 
 type ResolverConfig struct {
-	DoHServers   []string
-	DNSResolvers []string
-	Verbose      bool
-	CacheTTL     time.Duration
+	Servers   []string `yaml:"servers"`
+	Resolvers []string `yaml:"resolvers"`
+	CacheTTL  int      `yaml:"cache-ttl"`
+	Verbose   bool     `yaml:"verbose"`
 }
 
 type Resolver struct {
@@ -44,7 +44,7 @@ func NewResolver(cfg ResolverConfig) *Resolver {
 }
 
 func (r *Resolver) ForwardQuery(query []byte) ([]byte, error) {
-	for _, server := range r.config.DoHServers {
+	for _, server := range r.config.Servers {
 		resp, err := r.forwardToServer(server, query)
 		if err == nil {
 			return resp, nil
@@ -80,13 +80,13 @@ func (r *Resolver) GetDoHIPs(dohServerURL string) ([]net.IP, error) {
 	entry, found := r.cache[dohServerURL]
 	r.cacheMu.RUnlock()
 
-	if found && time.Since(entry.CachedAt) < r.config.CacheTTL {
+	if found && time.Since(entry.CachedAt) < time.Duration(r.config.CacheTTL)*time.Second {
 		return entry.IPs, nil
 	}
 
 	host := extractHost(dohServerURL)
-	for _, resolver := range r.config.DNSResolvers {
-		ips, err := utils.QueryDNSResolver(resolver, host)
+	for _, resolver := range r.config.Resolvers {
+		ips, err := dnsresolver.Query(resolver, host)
 		if err == nil && len(ips) > 0 {
 			r.cacheMu.Lock()
 			r.cache[dohServerURL] = cachedEntry{IPs: ips, CachedAt: time.Now()}

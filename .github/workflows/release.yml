@@ -1,0 +1,63 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      ARCH_LIST: "arm64 mipsle:mipsel"
+      GOOS: linux
+      CLI_TARGETS: "linux/amd64 linux/arm64 darwin/arm64 windows/amd64"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build opkg packages
+        run: ARCH_LIST="$ARCH_LIST" GOOS=$GOOS ./make.sh
+
+      - name: Build vpnerctl binaries
+        run: |
+          mkdir -p dist/vpnerctl
+          for target in $CLI_TARGETS; do
+            os=${target%/*}
+            arch=${target#*/}
+            out="dist/vpnerctl/vpnerctl-${os}-${arch}"
+            if [ "$os" = "windows" ]; then
+              out="${out}.exe"
+            fi
+            GOOS=$os GOARCH=$arch go build -ldflags="-s -w" -o "$out" ./cmd/vpnerctl
+          done
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p dist/ipk
+          cp build/*.ipk dist/ipk/
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vpner-build
+          path: |
+            dist/ipk/*.ipk
+            dist/vpnerctl/*
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            build/*.ipk
+            dist/vpnerctl/*

@@ -1,0 +1,97 @@
+syntax = "proto3";
+
+package vpner;
+option go_package = "github.com/ApostolDmitry/vpner/proto;proto";
+
+import "structures.proto";
+
+service VpnerManager {
+  // Unblock rules
+  rpc UnblockList(Empty) returns (UnblockListResponse);
+  rpc UnblockAdd(UnblockAddRequest) returns (GenericResponse);
+  rpc UnblockDel(UnblockDelRequest) returns (GenericResponse);
+
+  // Interfaces
+  rpc InterfaceList(Empty) returns (InterfaceListResponse);
+  rpc InterfaceScan(Empty) returns (InterfaceListResponse);
+  rpc InterfaceAdd(InterfaceActionRequest) returns (GenericResponse);
+  rpc InterfaceDel(InterfaceActionRequest) returns (GenericResponse);
+
+  // DNS management
+  rpc DnsManage(ManageRequest) returns (GenericResponse);
+  // xray manager
+  rpc XrayCreate (XrayCreateRequest) returns (GenericResponse);
+  rpc XrayDelete (XrayRequest) returns (GenericResponse);
+  rpc XrayList (Empty) returns (XrayListResponse);
+  rpc XrayManage(XrayManageRequest) returns (GenericResponse);
+  rpc XraySetAutorun(XrayAutoRunRequest) returns (GenericResponse);
+}
+
+
+message Empty {}
+
+message GenericResponse {
+  oneof result {
+    Success success = 1;
+    Error error = 2;
+  }
+}
+
+message Success {
+  string message = 1;
+}
+
+message Error {
+  string message = 1;
+}
+
+
+message UnblockListResponse {
+  repeated structures.UnblockInfo rules = 1;
+}
+
+message UnblockAddRequest {
+  string domain = 1;
+  string chain_name = 2;
+}
+
+message UnblockDelRequest {
+  string domain = 1;
+}
+
+
+message InterfaceListResponse {
+  repeated structures.InterfaceInfo interfaces = 1;
+}
+
+message InterfaceActionRequest {
+  string id = 1;
+}
+
+
+message ManageRequest {
+  structures.ManageAction act = 1;
+}
+
+message XrayCreateRequest {
+  string link = 1;
+  bool auto_run = 2;
+}
+
+message XrayRequest {
+  string chain_name = 1;
+}
+
+message XrayManageRequest {
+  string chain_name = 1;
+  structures.ManageAction act = 2;
+}
+
+message XrayAutoRunRequest {
+  string chain_name = 1;
+  bool auto_run = 2;
+}
+
+message XrayListResponse {
+  repeated structures.XrayInfo list = 1;
+}
