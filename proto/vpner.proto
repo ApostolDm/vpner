@@ -1,0 +1,84 @@
+syntax = "proto3";
+
+package vpner;
+option go_package = "github.com/ApostolDmitry/vpner/proto;proto";
+
+import "structures.proto";
+
+service VpnerManager {
+    rpc unblockList (UnblockListResponse) returns (UnblockListRequest);
+    rpc unblockAdd (UnblockAddResponse) returns (UnblockAddRequest);
+    rpc unblockDel (UnblockDelResponse) returns (UnblockDelRequest);
+    rpc vpnList (VpnListResponse) returns (VpnListRequest);
+    rpc vpnScan (stream VpnScanMessage) returns (stream VpnScanMessage);
+    rpc dnsManage (DnsManageResponse) returns (DnsManageRequest);
+
+}
+
+message Success {
+    string message = 1;
+}
+message Error {
+    string message = 1;
+}
+
+message UnblockListResponse {}
+message UnblockListRequest {
+    repeated structures.UnblockInfo rules = 1;
+}
+
+message UnblockAddResponse {
+    string domain = 1;
+    string chain_name = 2;
+}
+message UnblockAddRequest {
+    oneof result {
+        Success success = 1;
+        Error error = 2;
+    }
+}
+
+message UnblockDelResponse {
+    string domain = 1;
+    string chain_name = 2;
+}
+message UnblockDelRequest {
+    oneof result {
+        Success success = 1;
+        Error error = 2;
+    }
+}
+
+message VpnListResponse {}
+message VpnListRequest {
+    repeated structures.VpnInfo interfaces = 1;
+}
+
+message VpnSelectionResponse {
+    int32 selected_interface = 1;
+}
+
+message VpnScanMessage {
+    oneof payload {
+      VpnListResponse list = 1;
+      VpnSelectionResponse select = 2;
+      Error error = 3;
+    }
+}
+
+message DnsManageResponse {
+    enum action {
+        START = 0;
+        STOP = 1;
+        STATUS = 3;
+        RESTART = 4;
+    }
+    action act = 1;
+}
+
+message DnsManageRequest {
+    oneof result {
+        Success success = 1;
+        Error error = 2;
+    }
+}

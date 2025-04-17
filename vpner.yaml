@@ -9,3 +9,5 @@ dnsServer:
     - 1.1.1.1:53
   max-connections: 100
   verbose: true
+
+

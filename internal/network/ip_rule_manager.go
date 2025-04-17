@@ -58,7 +58,3 @@ func (m *ipRuleManager) CheckIPsInIpset(domain string) error {
 
 	return nil
 }
-
-func (m *ipRuleManager) CleanList() error {
-	return nil
-}

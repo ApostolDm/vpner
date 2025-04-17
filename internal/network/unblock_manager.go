@@ -47,7 +47,6 @@ func (v *VPNRulesConfig) RuleMap() map[string]*VPNRuleSet {
 
 type UnblockManager struct {
 	FilePath   string
-	lastMod    int64
 	cachedConf *VPNRulesConfig
 	mu         sync.RWMutex
 }
@@ -59,51 +58,32 @@ func NewUnblockManager(path string) *UnblockManager {
 	return &UnblockManager{FilePath: path}
 }
 
-func (m *UnblockManager) readConfig() (*VPNRulesConfig, error) {
-	nowStat, err := os.Stat(m.FilePath)
+func (m *UnblockManager) Init() error {
+	data, err := m.loadFromFile()
 	if err != nil {
-		if os.IsNotExist(err) {
-			m.mu.Lock()
-			defer m.mu.Unlock()
-			m.cachedConf = &VPNRulesConfig{}
-			m.lastMod = 0
-			return m.cachedConf, nil
-		}
-		return nil, fmt.Errorf("failed to stat file: %v", err)
+		return err
 	}
-	modTime := nowStat.ModTime().Unix()
-
-	m.mu.RLock()
-	if m.cachedConf != nil && m.lastMod == modTime {
-		defer m.mu.RUnlock()
-		fmt.Println("Прочитался с кэша")
-		return m.cachedConf, nil
-	}
-	m.mu.RUnlock()
-
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.cachedConf = data
+	return nil
+}
 
-	if m.cachedConf != nil && m.lastMod == modTime {
-		fmt.Println("Прочитался с кэша (после Lock)")
-		return m.cachedConf, nil
-	}
-
+func (m *UnblockManager) loadFromFile() (*VPNRulesConfig, error) {
 	file, err := os.Open(m.FilePath)
+	if os.IsNotExist(err) {
+		return &VPNRulesConfig{}, nil
+	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to open file: %v", err)
+		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
 	defer file.Close()
 
 	var config VPNRulesConfig
 	if err := yaml.NewDecoder(file).Decode(&config); err != nil && err != io.EOF {
-		return nil, fmt.Errorf("failed to parse YAML: %v", err)
+		return nil, fmt.Errorf("failed to parse YAML: %w", err)
 	}
-	fmt.Println("Прочтитался с файла")
-
-	m.cachedConf = &config
-	m.lastMod = modTime
-	return m.cachedConf, nil
+	return &config, nil
 }
 
 func (m *UnblockManager) writeConfig(data *VPNRulesConfig) error {
@@ -124,30 +104,18 @@ func (m *UnblockManager) writeConfig(data *VPNRulesConfig) error {
 	}
 
 	m.cachedConf = data
-
-	stat, err := os.Stat(m.FilePath)
-	if err == nil {
-		m.lastMod = stat.ModTime().Unix()
-	} else {
-		m.lastMod = 0
-	}
-
 	return nil
 }
 
 func (m *UnblockManager) AddRule(vpnType, chainName, pattern string) error {
-	data, err := m.readConfig()
-	if err != nil {
-		return err
-	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
+	data := m.cachedConf
 	rules := data.RuleMap()
 	set, ok := rules[vpnType]
 	if !ok {
 		return fmt.Errorf("unknown VPN type: %s", vpnType)
-	}
-	if *set == nil {
-		*set = make(VPNRuleSet)
 	}
 	(*set)[chainName] = append((*set)[chainName], pattern)
 
@@ -155,11 +123,10 @@ func (m *UnblockManager) AddRule(vpnType, chainName, pattern string) error {
 }
 
 func (m *UnblockManager) DelRule(vpnType, chainName, pattern string) error {
-	data, err := m.readConfig()
-	if err != nil {
-		return err
-	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
+	data := m.cachedConf
 	rules := data.RuleMap()
 	set, ok := rules[vpnType]
 	if !ok || *set == nil {
@@ -195,11 +162,10 @@ func (m *UnblockManager) DelRule(vpnType, chainName, pattern string) error {
 }
 
 func (m *UnblockManager) GetRules(vpnType, chainName string) ([]string, error) {
-	data, err := m.readConfig()
-	if err != nil {
-		return nil, err
-	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
+	data := m.cachedConf
 	rules := data.RuleMap()
 	set, ok := rules[vpnType]
 	if !ok || *set == nil {
@@ -209,16 +175,16 @@ func (m *UnblockManager) GetRules(vpnType, chainName string) ([]string, error) {
 }
 
 func (m *UnblockManager) GetAllRules() (*VPNRulesConfig, error) {
-	return m.readConfig()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.cachedConf, nil
 }
 
 func (m *UnblockManager) MatchDomain(domain string) (string, string, bool) {
-	data, err := m.readConfig()
-	if err != nil {
-		return "", "", false
-	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
-	for vpnType, set := range data.RuleMap() {
+	for vpnType, set := range m.cachedConf.RuleMap() {
 		if *set == nil {
 			continue
 		}

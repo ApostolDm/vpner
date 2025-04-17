@@ -9,13 +9,15 @@ import (
 	"github.com/ApostolDmitry/vpner/internal/network"
 	"github.com/ApostolDmitry/vpner/internal/utils"
 	"github.com/miekg/dns"
+	"golang.org/x/net/context"
 )
 
 type ServerConfig struct {
-	Port              int
-	MaxConcurrentConn int
-	Verbose           bool
-	CustomResolve     map[string][]string
+	Port              int                 `yaml:"port"`
+	MaxConcurrentConn int                 `yaml:"max-concurrent-connections"`
+	Verbose           bool                `yaml:"verbose"`
+	CustomResolve     map[string][]string `yaml:"custom-resolve"`
+	Running 		  bool 				  `yaml:"running"`
 }
 
 type compiledResolverRule struct {
@@ -29,6 +31,7 @@ type DNSServer struct {
 	unblockManager *network.UnblockManager
 	customRules    []compiledResolverRule
 	resolver       *dohclient.Resolver
+	dnsServer      *dns.Server
 }
 
 func NewDNSServer(cfg ServerConfig, um *network.UnblockManager, resolver *dohclient.Resolver) *DNSServer {
@@ -55,22 +58,32 @@ func NewDNSServer(cfg ServerConfig, um *network.UnblockManager, resolver *dohcli
 	return s
 }
 
-func (s *DNSServer) Run() {
+func (s *DNSServer) Run(ctx context.Context) error {
 	dns.HandleFunc(".", s.handleDNSRequest)
-	server := &dns.Server{Addr: ":" + strconv.Itoa(s.config.Port), Net: "udp"}
+
+	addr := ":" + strconv.Itoa(s.config.Port)
+	s.dnsServer = &dns.Server{Addr: addr, Net: "udp"}
+
+	go func() {
+		<-ctx.Done()
+		if s.config.Verbose {
+			log.Println("DNS server shutdown initiated")
+		}
+		_ = s.dnsServer.Shutdown()
+	}()
 
 	if s.config.Verbose {
 		log.Printf("Starting DNS server on port %d...", s.config.Port)
 	}
-	if err := server.ListenAndServe(); err != nil {
-		log.Fatalf("Failed to start DNS server: %v", err)
-	}
+
+	return s.dnsServer.ListenAndServe()
 }
 
 func (s *DNSServer) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	if s.config.Verbose {
 		log.Println("Received new DNS request")
 	}
+
 	s.connSemaphore <- struct{}{}
 	defer func() { <-s.connSemaphore }()
 
@@ -85,7 +98,8 @@ func (s *DNSServer) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 		}
 
 		in := new(dns.Msg)
-		in.SetQuestion(domain, dns.TypeA)
+		in.SetQuestion(dns.Fqdn(domain), dns.TypeA)
+
 		resp, err := dns.Exchange(in, resolverIP)
 		if err != nil {
 			log.Printf("Custom resolver error: %v", err)
@@ -100,16 +114,19 @@ func (s *DNSServer) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 		log.Printf("Pack error: %v", err)
 		return
 	}
+
 	resp, err := s.resolver.ForwardQuery(packed)
 	if err != nil {
 		log.Printf("DoH forward error: %v", err)
 		return
 	}
+
 	msg := new(dns.Msg)
 	if err := msg.Unpack(resp); err != nil {
 		log.Printf("Unpack error: %v", err)
 		return
 	}
+
 	_ = w.WriteMsg(msg)
 }
 
