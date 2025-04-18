@@ -87,8 +87,6 @@ func (m *UnblockManager) loadFromFile() (*VPNRulesConfig, error) {
 }
 
 func (m *UnblockManager) writeConfig(data *VPNRulesConfig) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	file, err := os.OpenFile(m.FilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {

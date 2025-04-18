@@ -9,10 +9,11 @@ service VpnerManager {
     rpc unblockList (UnblockListResponse) returns (UnblockListRequest);
     rpc unblockAdd (UnblockAddResponse) returns (UnblockAddRequest);
     rpc unblockDel (UnblockDelResponse) returns (UnblockDelRequest);
+
     rpc vpnList (VpnListResponse) returns (VpnListRequest);
     rpc vpnScan (stream VpnScanMessage) returns (stream VpnScanMessage);
-    rpc dnsManage (DnsManageResponse) returns (DnsManageRequest);
 
+    rpc dnsManage (DnsManageResponse) returns (DnsManageRequest);
 }
 
 message Success {
@@ -40,7 +41,6 @@ message UnblockAddRequest {
 
 message UnblockDelResponse {
     string domain = 1;
-    string chain_name = 2;
 }
 message UnblockDelRequest {
     oneof result {

@@ -10,6 +10,7 @@ import (
 	"github.com/ApostolDmitry/vpner/internal/dnsserver"
 	"github.com/ApostolDmitry/vpner/internal/dohclient"
 	pb "github.com/ApostolDmitry/vpner/internal/grpc"
+	manager_interface "github.com/ApostolDmitry/vpner/internal/interface"
 	"github.com/ApostolDmitry/vpner/internal/network"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -48,10 +49,13 @@ func RunServer(ctx context.Context, cfg RunConfig) error {
 		}
 	}
 
+	ifManager := manager_interface.NewInterfaceManager("")
+
 	serverImpl := &VpnerServer{
-		dns:      dnsService,
-		unblock:  unblock,
-		resolver: resolver,
+		dns:       dnsService,
+		unblock:   unblock,
+		resolver:  resolver,
+		ifManager: ifManager,
 	}
 
 	var tcpServer, unixServer *grpc.Server
@@ -105,7 +109,7 @@ func listenAndServe(network, addr string, useAuth bool, password string, handler
 	if err != nil {
 		return nil, nil, fmt.Errorf("listen error (%s): %w", network, err)
 	}
-	log.Printf("📡 gRPC listening on %s (%s)", addr, network)
+	log.Printf("gRPC listening on %s (%s)", addr, network)
 
 	opts := []grpc.ServerOption{}
 	if useAuth {

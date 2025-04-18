@@ -378,7 +378,6 @@ func (*UnblockAddRequest_Error) isUnblockAddRequest_Result() {}
 type UnblockDelResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Domain        string                 `protobuf:"bytes,1,opt,name=domain,proto3" json:"domain,omitempty"`
-	ChainName     string                 `protobuf:"bytes,2,opt,name=chain_name,json=chainName,proto3" json:"chain_name,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -416,13 +415,6 @@ func (*UnblockDelResponse) Descriptor() ([]byte, []int) {
 func (x *UnblockDelResponse) GetDomain() string {
 	if x != nil {
 		return x.Domain
-	}
-	return ""
-}
-
-func (x *UnblockDelResponse) GetChainName() string {
-	if x != nil {
-		return x.ChainName
 	}
 	return ""
 }
@@ -876,11 +868,9 @@ const file_vpner_proto_rawDesc = "" +
 	"\x11UnblockAddRequest\x12*\n" +
 	"\asuccess\x18\x01 \x01(\v2\x0e.vpner.SuccessH\x00R\asuccess\x12$\n" +
 	"\x05error\x18\x02 \x01(\v2\f.vpner.ErrorH\x00R\x05errorB\b\n" +
-	"\x06result\"K\n" +
+	"\x06result\",\n" +
 	"\x12UnblockDelResponse\x12\x16\n" +
-	"\x06domain\x18\x01 \x01(\tR\x06domain\x12\x1d\n" +
-	"\n" +
-	"chain_name\x18\x02 \x01(\tR\tchainName\"o\n" +
+	"\x06domain\x18\x01 \x01(\tR\x06domain\"o\n" +
 	"\x11UnblockDelRequest\x12*\n" +
 	"\asuccess\x18\x01 \x01(\v2\x0e.vpner.SuccessH\x00R\asuccess\x12$\n" +
 	"\x05error\x18\x02 \x01(\v2\f.vpner.ErrorH\x00R\x05errorB\b\n" +

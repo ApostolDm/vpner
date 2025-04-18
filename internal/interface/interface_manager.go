@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
 
 	"github.com/ApostolDmitry/vpner/internal/utils"
 	"gopkg.in/yaml.v3"
@@ -27,6 +28,7 @@ type VPNInterfaces struct {
 
 type Manager struct {
 	OutputFile string
+	mu         sync.RWMutex
 }
 
 func NewInterfaceManager(outputFile string) *Manager {
@@ -37,6 +39,8 @@ func NewInterfaceManager(outputFile string) *Manager {
 }
 
 func (m *Manager) readVPNInterfaces() (*VPNInterfaces, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	file, err := os.Open(m.OutputFile)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -56,6 +60,8 @@ func (m *Manager) readVPNInterfaces() (*VPNInterfaces, error) {
 }
 
 func (m *Manager) writeVPNInterfaces(vpnInterfaces *VPNInterfaces) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	file, err := os.OpenFile(m.OutputFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open file for writing: %v", err)
