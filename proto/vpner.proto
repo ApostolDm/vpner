@@ -6,12 +6,14 @@ option go_package = "github.com/ApostolDmitry/vpner/proto;proto";
 import "structures.proto";
 
 service VpnerManager {
-    rpc unblockList (UnblockListResponse) returns (UnblockListRequest);
+    rpc unblockList (Empty) returns (UnblockListRequest);
     rpc unblockAdd (UnblockAddResponse) returns (UnblockAddRequest);
     rpc unblockDel (UnblockDelResponse) returns (UnblockDelRequest);
 
-    rpc vpnList (VpnListResponse) returns (VpnListRequest);
-    rpc vpnScan (stream VpnScanMessage) returns (stream VpnScanMessage);
+    rpc interfaceList (Empty) returns (InterfaceMap);
+    rpc interfaceScan (Empty) returns (InterfaceMap);
+    rpc interfaceAdd (InterfaceResponse) returns (InterfaceRequest);
+    rpc interfaceDel (InterfaceResponse) returns (InterfaceRequest);
 
     rpc dnsManage (DnsManageResponse) returns (DnsManageRequest);
 }
@@ -23,7 +25,6 @@ message Error {
     string message = 1;
 }
 
-message UnblockListResponse {}
 message UnblockListRequest {
     repeated structures.UnblockInfo rules = 1;
 }
@@ -49,20 +50,17 @@ message UnblockDelRequest {
     }
 }
 
-message VpnListResponse {}
-message VpnListRequest {
-    repeated structures.VpnInfo interfaces = 1;
+message InterfaceMap {
+    repeated structures.InterfaceInfo interfaces = 1;
 }
 
-message VpnSelectionResponse {
-    int32 selected_interface = 1;
+message InterfaceResponse {
+    string Id = 1;
 }
-
-message VpnScanMessage {
-    oneof payload {
-      VpnListResponse list = 1;
-      VpnSelectionResponse select = 2;
-      Error error = 3;
+message InterfaceRequest {
+    oneof result {
+        Success success = 1;
+        Error error = 2;
     }
 }
 
@@ -82,3 +80,5 @@ message DnsManageRequest {
         Error error = 2;
     }
 }
+
+message Empty {}

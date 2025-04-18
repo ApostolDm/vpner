@@ -68,6 +68,10 @@ func init() {
 	unblockCmd.AddCommand(UnblockAddCmd())
 	unblockCmd.AddCommand(UnblockDelCmd())
 	rootCmd.AddCommand(unblockCmd)
+	//interface
+	interfaceCmd.AddCommand(InterfaceListCmd())
+	interfaceCmd.AddCommand(InterfaceScanCmd())
+	rootCmd.AddCommand(interfaceCmd)
 }
 
 func resolveConnectionOptions(cfg *CLIConfig) (addr, unix, pass string) {

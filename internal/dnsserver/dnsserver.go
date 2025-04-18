@@ -17,7 +17,7 @@ type ServerConfig struct {
 	MaxConcurrentConn int                 `yaml:"max-concurrent-connections"`
 	Verbose           bool                `yaml:"verbose"`
 	CustomResolve     map[string][]string `yaml:"custom-resolve"`
-	Running 		  bool 				  `yaml:"running"`
+	Running           bool                `yaml:"running"`
 }
 
 type compiledResolverRule struct {
@@ -45,7 +45,7 @@ func NewDNSServer(cfg ServerConfig, um *network.UnblockManager, resolver *dohcli
 	for resolverAddr, patterns := range cfg.CustomResolve {
 		for _, raw := range patterns {
 			if err := utils.ValidatePattern(raw); err != nil {
-				log.Printf("ошибка в шаблоне customResolve %q: %v", raw, err)
+				utils.LogErrorF("ошибка в шаблоне customResolve %q: %v", raw, err)
 				continue
 			}
 			s.customRules = append(s.customRules, compiledResolverRule{

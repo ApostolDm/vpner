@@ -9,12 +9,15 @@ message UnblockInfo {
     repeated string rules = 3;
 }
 
-message VpnInfo {
+message InterfaceInfo {
     string id = 1;
     string type = 2;
     string description = 3;
     enum state {
         UP = 0;
         DOWN = 1;
+        UNKNOWN = 2;
     }
+    state status = 4;
+    bool added = 5;
 }

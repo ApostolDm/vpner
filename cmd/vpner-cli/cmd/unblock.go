@@ -19,7 +19,7 @@ var unblockListCmd = &cobra.Command{
 	Short: "Вывести правила разблокировки",
 	Run: func(cmd *cobra.Command, args []string) {
 		client := pb.NewVpnerManagerClient(conn)
-		resp, err := client.UnblockList(ctx, &pb.UnblockListResponse{})
+		resp, err := client.UnblockList(ctx, &pb.Empty{})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Ошибка: %v\n", err)
 			os.Exit(1)

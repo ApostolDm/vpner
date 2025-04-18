@@ -19,23 +19,27 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	VpnerManager_UnblockList_FullMethodName = "/vpner.VpnerManager/unblockList"
-	VpnerManager_UnblockAdd_FullMethodName  = "/vpner.VpnerManager/unblockAdd"
-	VpnerManager_UnblockDel_FullMethodName  = "/vpner.VpnerManager/unblockDel"
-	VpnerManager_VpnList_FullMethodName     = "/vpner.VpnerManager/vpnList"
-	VpnerManager_VpnScan_FullMethodName     = "/vpner.VpnerManager/vpnScan"
-	VpnerManager_DnsManage_FullMethodName   = "/vpner.VpnerManager/dnsManage"
+	VpnerManager_UnblockList_FullMethodName   = "/vpner.VpnerManager/unblockList"
+	VpnerManager_UnblockAdd_FullMethodName    = "/vpner.VpnerManager/unblockAdd"
+	VpnerManager_UnblockDel_FullMethodName    = "/vpner.VpnerManager/unblockDel"
+	VpnerManager_InterfaceList_FullMethodName = "/vpner.VpnerManager/interfaceList"
+	VpnerManager_InterfaceScan_FullMethodName = "/vpner.VpnerManager/interfaceScan"
+	VpnerManager_InterfaceAdd_FullMethodName  = "/vpner.VpnerManager/interfaceAdd"
+	VpnerManager_InterfaceDel_FullMethodName  = "/vpner.VpnerManager/interfaceDel"
+	VpnerManager_DnsManage_FullMethodName     = "/vpner.VpnerManager/dnsManage"
 )
 
 // VpnerManagerClient is the client API for VpnerManager service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type VpnerManagerClient interface {
-	UnblockList(ctx context.Context, in *UnblockListResponse, opts ...grpc.CallOption) (*UnblockListRequest, error)
+	UnblockList(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*UnblockListRequest, error)
 	UnblockAdd(ctx context.Context, in *UnblockAddResponse, opts ...grpc.CallOption) (*UnblockAddRequest, error)
 	UnblockDel(ctx context.Context, in *UnblockDelResponse, opts ...grpc.CallOption) (*UnblockDelRequest, error)
-	VpnList(ctx context.Context, in *VpnListResponse, opts ...grpc.CallOption) (*VpnListRequest, error)
-	VpnScan(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[VpnScanMessage, VpnScanMessage], error)
+	InterfaceList(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*InterfaceMap, error)
+	InterfaceScan(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*InterfaceMap, error)
+	InterfaceAdd(ctx context.Context, in *InterfaceResponse, opts ...grpc.CallOption) (*InterfaceRequest, error)
+	InterfaceDel(ctx context.Context, in *InterfaceResponse, opts ...grpc.CallOption) (*InterfaceRequest, error)
 	DnsManage(ctx context.Context, in *DnsManageResponse, opts ...grpc.CallOption) (*DnsManageRequest, error)
 }
 
@@ -47,7 +51,7 @@ func NewVpnerManagerClient(cc grpc.ClientConnInterface) VpnerManagerClient {
 	return &vpnerManagerClient{cc}
 }
 
-func (c *vpnerManagerClient) UnblockList(ctx context.Context, in *UnblockListResponse, opts ...grpc.CallOption) (*UnblockListRequest, error) {
+func (c *vpnerManagerClient) UnblockList(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*UnblockListRequest, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(UnblockListRequest)
 	err := c.cc.Invoke(ctx, VpnerManager_UnblockList_FullMethodName, in, out, cOpts...)
@@ -77,28 +81,45 @@ func (c *vpnerManagerClient) UnblockDel(ctx context.Context, in *UnblockDelRespo
 	return out, nil
 }
 
-func (c *vpnerManagerClient) VpnList(ctx context.Context, in *VpnListResponse, opts ...grpc.CallOption) (*VpnListRequest, error) {
+func (c *vpnerManagerClient) InterfaceList(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*InterfaceMap, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(VpnListRequest)
-	err := c.cc.Invoke(ctx, VpnerManager_VpnList_FullMethodName, in, out, cOpts...)
+	out := new(InterfaceMap)
+	err := c.cc.Invoke(ctx, VpnerManager_InterfaceList_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *vpnerManagerClient) VpnScan(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[VpnScanMessage, VpnScanMessage], error) {
+func (c *vpnerManagerClient) InterfaceScan(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*InterfaceMap, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &VpnerManager_ServiceDesc.Streams[0], VpnerManager_VpnScan_FullMethodName, cOpts...)
+	out := new(InterfaceMap)
+	err := c.cc.Invoke(ctx, VpnerManager_InterfaceScan_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[VpnScanMessage, VpnScanMessage]{ClientStream: stream}
-	return x, nil
+	return out, nil
 }
 
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type VpnerManager_VpnScanClient = grpc.BidiStreamingClient[VpnScanMessage, VpnScanMessage]
+func (c *vpnerManagerClient) InterfaceAdd(ctx context.Context, in *InterfaceResponse, opts ...grpc.CallOption) (*InterfaceRequest, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(InterfaceRequest)
+	err := c.cc.Invoke(ctx, VpnerManager_InterfaceAdd_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *vpnerManagerClient) InterfaceDel(ctx context.Context, in *InterfaceResponse, opts ...grpc.CallOption) (*InterfaceRequest, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(InterfaceRequest)
+	err := c.cc.Invoke(ctx, VpnerManager_InterfaceDel_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
 
 func (c *vpnerManagerClient) DnsManage(ctx context.Context, in *DnsManageResponse, opts ...grpc.CallOption) (*DnsManageRequest, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -114,11 +135,13 @@ func (c *vpnerManagerClient) DnsManage(ctx context.Context, in *DnsManageRespons
 // All implementations must embed UnimplementedVpnerManagerServer
 // for forward compatibility.
 type VpnerManagerServer interface {
-	UnblockList(context.Context, *UnblockListResponse) (*UnblockListRequest, error)
+	UnblockList(context.Context, *Empty) (*UnblockListRequest, error)
 	UnblockAdd(context.Context, *UnblockAddResponse) (*UnblockAddRequest, error)
 	UnblockDel(context.Context, *UnblockDelResponse) (*UnblockDelRequest, error)
-	VpnList(context.Context, *VpnListResponse) (*VpnListRequest, error)
-	VpnScan(grpc.BidiStreamingServer[VpnScanMessage, VpnScanMessage]) error
+	InterfaceList(context.Context, *Empty) (*InterfaceMap, error)
+	InterfaceScan(context.Context, *Empty) (*InterfaceMap, error)
+	InterfaceAdd(context.Context, *InterfaceResponse) (*InterfaceRequest, error)
+	InterfaceDel(context.Context, *InterfaceResponse) (*InterfaceRequest, error)
 	DnsManage(context.Context, *DnsManageResponse) (*DnsManageRequest, error)
 	mustEmbedUnimplementedVpnerManagerServer()
 }
@@ -130,7 +153,7 @@ type VpnerManagerServer interface {
 // pointer dereference when methods are called.
 type UnimplementedVpnerManagerServer struct{}
 
-func (UnimplementedVpnerManagerServer) UnblockList(context.Context, *UnblockListResponse) (*UnblockListRequest, error) {
+func (UnimplementedVpnerManagerServer) UnblockList(context.Context, *Empty) (*UnblockListRequest, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UnblockList not implemented")
 }
 func (UnimplementedVpnerManagerServer) UnblockAdd(context.Context, *UnblockAddResponse) (*UnblockAddRequest, error) {
@@ -139,11 +162,17 @@ func (UnimplementedVpnerManagerServer) UnblockAdd(context.Context, *UnblockAddRe
 func (UnimplementedVpnerManagerServer) UnblockDel(context.Context, *UnblockDelResponse) (*UnblockDelRequest, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UnblockDel not implemented")
 }
-func (UnimplementedVpnerManagerServer) VpnList(context.Context, *VpnListResponse) (*VpnListRequest, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method VpnList not implemented")
+func (UnimplementedVpnerManagerServer) InterfaceList(context.Context, *Empty) (*InterfaceMap, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method InterfaceList not implemented")
 }
-func (UnimplementedVpnerManagerServer) VpnScan(grpc.BidiStreamingServer[VpnScanMessage, VpnScanMessage]) error {
-	return status.Errorf(codes.Unimplemented, "method VpnScan not implemented")
+func (UnimplementedVpnerManagerServer) InterfaceScan(context.Context, *Empty) (*InterfaceMap, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method InterfaceScan not implemented")
+}
+func (UnimplementedVpnerManagerServer) InterfaceAdd(context.Context, *InterfaceResponse) (*InterfaceRequest, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method InterfaceAdd not implemented")
+}
+func (UnimplementedVpnerManagerServer) InterfaceDel(context.Context, *InterfaceResponse) (*InterfaceRequest, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method InterfaceDel not implemented")
 }
 func (UnimplementedVpnerManagerServer) DnsManage(context.Context, *DnsManageResponse) (*DnsManageRequest, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DnsManage not implemented")
@@ -170,7 +199,7 @@ func RegisterVpnerManagerServer(s grpc.ServiceRegistrar, srv VpnerManagerServer)
 }
 
 func _VpnerManager_UnblockList_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(UnblockListResponse)
+	in := new(Empty)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -182,7 +211,7 @@ func _VpnerManager_UnblockList_Handler(srv interface{}, ctx context.Context, dec
 		FullMethod: VpnerManager_UnblockList_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(VpnerManagerServer).UnblockList(ctx, req.(*UnblockListResponse))
+		return srv.(VpnerManagerServer).UnblockList(ctx, req.(*Empty))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -223,30 +252,77 @@ func _VpnerManager_UnblockDel_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
-func _VpnerManager_VpnList_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(VpnListResponse)
+func _VpnerManager_InterfaceList_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(VpnerManagerServer).VpnList(ctx, in)
+		return srv.(VpnerManagerServer).InterfaceList(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: VpnerManager_VpnList_FullMethodName,
+		FullMethod: VpnerManager_InterfaceList_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(VpnerManagerServer).VpnList(ctx, req.(*VpnListResponse))
+		return srv.(VpnerManagerServer).InterfaceList(ctx, req.(*Empty))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _VpnerManager_VpnScan_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(VpnerManagerServer).VpnScan(&grpc.GenericServerStream[VpnScanMessage, VpnScanMessage]{ServerStream: stream})
+func _VpnerManager_InterfaceScan_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VpnerManagerServer).InterfaceScan(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VpnerManager_InterfaceScan_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VpnerManagerServer).InterfaceScan(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type VpnerManager_VpnScanServer = grpc.BidiStreamingServer[VpnScanMessage, VpnScanMessage]
+func _VpnerManager_InterfaceAdd_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InterfaceResponse)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VpnerManagerServer).InterfaceAdd(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VpnerManager_InterfaceAdd_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VpnerManagerServer).InterfaceAdd(ctx, req.(*InterfaceResponse))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _VpnerManager_InterfaceDel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InterfaceResponse)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VpnerManagerServer).InterfaceDel(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VpnerManager_InterfaceDel_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VpnerManagerServer).InterfaceDel(ctx, req.(*InterfaceResponse))
+	}
+	return interceptor(ctx, in, info, handler)
+}
 
 func _VpnerManager_DnsManage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DnsManageResponse)
@@ -286,21 +362,26 @@ var VpnerManager_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _VpnerManager_UnblockDel_Handler,
 		},
 		{
-			MethodName: "vpnList",
-			Handler:    _VpnerManager_VpnList_Handler,
+			MethodName: "interfaceList",
+			Handler:    _VpnerManager_InterfaceList_Handler,
+		},
+		{
+			MethodName: "interfaceScan",
+			Handler:    _VpnerManager_InterfaceScan_Handler,
+		},
+		{
+			MethodName: "interfaceAdd",
+			Handler:    _VpnerManager_InterfaceAdd_Handler,
+		},
+		{
+			MethodName: "interfaceDel",
+			Handler:    _VpnerManager_InterfaceDel_Handler,
 		},
 		{
 			MethodName: "dnsManage",
 			Handler:    _VpnerManager_DnsManage_Handler,
 		},
 	},
-	Streams: []grpc.StreamDesc{
-		{
-			StreamName:    "vpnScan",
-			Handler:       _VpnerManager_VpnScan_Handler,
-			ServerStreams: true,
-			ClientStreams: true,
-		},
-	},
+	Streams:  []grpc.StreamDesc{},
 	Metadata: "vpner.proto",
 }

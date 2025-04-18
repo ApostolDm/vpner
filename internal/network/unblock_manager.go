@@ -159,6 +159,25 @@ func (m *UnblockManager) DelRule(vpnType, chainName, pattern string) error {
 	return m.writeConfig(data)
 }
 
+func (m *UnblockManager) DelChain(vpnType, chainName string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	data := m.cachedConf
+	rules := data.RuleMap()
+	set, ok := rules[vpnType]
+	if !ok || *set == nil {
+		return fmt.Errorf("unknown or empty VPN type: %s", vpnType)
+	}
+	if _, exists := (*set)[chainName]; !exists {
+		return fmt.Errorf("chain not found: %s", chainName)
+	}
+	delete(*set, chainName)
+	fmt.Println(*set)
+
+	return m.writeConfig(data)
+}
+
 func (m *UnblockManager) GetRules(vpnType, chainName string) ([]string, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
