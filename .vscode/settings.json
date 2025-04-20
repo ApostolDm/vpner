@@ -1,0 +1,10 @@
+{
+    "protoc": {
+        "path": "/opt/homebrew/bin/protoc",
+        "options": [
+            "--proto_path=proto",
+            "--go_out=internal/grpc",
+            "--go-grpc_out=internal/grpc"
+        ]
+    }
+}

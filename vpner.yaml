@@ -1,11 +1,31 @@
 dnsServer:
   port: 53
-  doh-servers:
-    - https://cloudflare-dns.com/dns-query
-    - https://dns.google/dns-query
-  doh-resolve-ttl: 5
-  dns-resolvers:
-    - 8.8.8.8:53
-    - 1.1.1.1:53
-  max-connections: 100
-  verbose: true
+  max-concurrent-connections: 100
+  verbose: false
+  running: true
+  custom-resolve: {}
+
+doh:
+  servers:
+    - "https://dns.google/dns-query"
+    - "https://cloudflare-dns.com/dns-query"
+  resolvers:
+    - "1.1.1.1"
+    - "8.8.8.8"
+  cache-ttl: 300
+
+grpc:
+  tcp:
+    enabled: true
+    address: ":50051"
+    auth: true
+
+  unix:
+    enabled: true
+    path: "/tmp/vpner.sock"
+    auth: false
+
+  auth:
+    password: "secret123"
+
+unblock-rules-path: "/opt/etc/vpner/vpner_unblock.yaml"

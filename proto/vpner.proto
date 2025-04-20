@@ -1,0 +1,84 @@
+syntax = "proto3";
+
+package vpner;
+option go_package = "github.com/ApostolDmitry/vpner/proto;proto";
+
+import "structures.proto";
+
+service VpnerManager {
+    rpc unblockList (Empty) returns (UnblockListRequest);
+    rpc unblockAdd (UnblockAddResponse) returns (UnblockAddRequest);
+    rpc unblockDel (UnblockDelResponse) returns (UnblockDelRequest);
+
+    rpc interfaceList (Empty) returns (InterfaceMap);
+    rpc interfaceScan (Empty) returns (InterfaceMap);
+    rpc interfaceAdd (InterfaceResponse) returns (InterfaceRequest);
+    rpc interfaceDel (InterfaceResponse) returns (InterfaceRequest);
+
+    rpc dnsManage (DnsManageResponse) returns (DnsManageRequest);
+}
+
+message Success {
+    string message = 1;
+}
+message Error {
+    string message = 1;
+}
+
+message UnblockListRequest {
+    repeated structures.UnblockInfo rules = 1;
+}
+
+message UnblockAddResponse {
+    string domain = 1;
+    string chain_name = 2;
+}
+message UnblockAddRequest {
+    oneof result {
+        Success success = 1;
+        Error error = 2;
+    }
+}
+
+message UnblockDelResponse {
+    string domain = 1;
+}
+message UnblockDelRequest {
+    oneof result {
+        Success success = 1;
+        Error error = 2;
+    }
+}
+
+message InterfaceMap {
+    repeated structures.InterfaceInfo interfaces = 1;
+}
+
+message InterfaceResponse {
+    string Id = 1;
+}
+message InterfaceRequest {
+    oneof result {
+        Success success = 1;
+        Error error = 2;
+    }
+}
+
+message DnsManageResponse {
+    enum action {
+        START = 0;
+        STOP = 1;
+        STATUS = 3;
+        RESTART = 4;
+    }
+    action act = 1;
+}
+
+message DnsManageRequest {
+    oneof result {
+        Success success = 1;
+        Error error = 2;
+    }
+}
+
+message Empty {}
