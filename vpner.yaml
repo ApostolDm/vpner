@@ -23,7 +23,7 @@ grpc:
   unix:
     enabled: true
     path: "/tmp/vpner.sock"
-    auth: false    
+    auth: false
 
   auth:
     password: "secret123"
