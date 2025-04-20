@@ -72,6 +72,8 @@ func init() {
 	interfaceCmd.AddCommand(InterfaceListCmd())
 	interfaceCmd.AddCommand(InterfaceScanCmd())
 	rootCmd.AddCommand(interfaceCmd)
+	// ss
+	rootCmd.AddCommand(ssCmd)
 }
 
 func resolveConnectionOptions(cfg *CLIConfig) (addr, unix, pass string) {

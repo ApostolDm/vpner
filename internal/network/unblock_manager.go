@@ -55,13 +55,19 @@ func NewUnblockManager(path string) *UnblockManager {
 	if path == "" {
 		path = defaultRulesFile
 	}
-	return &UnblockManager{FilePath: path}
+	return &UnblockManager{
+		FilePath: path,
+		cachedConf: &VPNRulesConfig{},
+	}
 }
 
 func (m *UnblockManager) Init() error {
 	data, err := m.loadFromFile()
 	if err != nil {
 		return err
+	}
+	if data == nil {
+		return nil
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -72,7 +78,7 @@ func (m *UnblockManager) Init() error {
 func (m *UnblockManager) loadFromFile() (*VPNRulesConfig, error) {
 	file, err := os.Open(m.FilePath)
 	if os.IsNotExist(err) {
-		return &VPNRulesConfig{}, nil
+		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %w", err)
@@ -86,46 +92,39 @@ func (m *UnblockManager) loadFromFile() (*VPNRulesConfig, error) {
 	return &config, nil
 }
 
-func (m *UnblockManager) writeConfig(data *VPNRulesConfig) error {
-
+func (m *UnblockManager) writeConfig() error {
 	file, err := os.OpenFile(m.FilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
-		return fmt.Errorf("failed to open file for writing: %v", err)
+		return fmt.Errorf("failed to open file: %w", err)
 	}
 	defer file.Close()
 
-	encoder := yaml.NewEncoder(file)
-	defer encoder.Close()
-
-	if err := encoder.Encode(data); err != nil {
-		return err
+	if err := yaml.NewEncoder(file).Encode(m.cachedConf); err != nil {
+		return fmt.Errorf("failed to write YAML: %w", err)
 	}
-
-	m.cachedConf = data
 	return nil
 }
+
 
 func (m *UnblockManager) AddRule(vpnType, chainName, pattern string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	data := m.cachedConf
-	rules := data.RuleMap()
+	rules := m.cachedConf.RuleMap()
 	set, ok := rules[vpnType]
 	if !ok {
 		return fmt.Errorf("unknown VPN type: %s", vpnType)
 	}
 	(*set)[chainName] = append((*set)[chainName], pattern)
 
-	return m.writeConfig(data)
+	return m.writeConfig()
 }
 
 func (m *UnblockManager) DelRule(vpnType, chainName, pattern string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	data := m.cachedConf
-	rules := data.RuleMap()
+	rules := m.cachedConf.RuleMap()
 	set, ok := rules[vpnType]
 	if !ok || *set == nil {
 		return fmt.Errorf("unknown or empty VPN type: %s", vpnType)
@@ -156,15 +155,15 @@ func (m *UnblockManager) DelRule(vpnType, chainName, pattern string) error {
 		(*set)[chainName] = newList
 	}
 
-	return m.writeConfig(data)
+	return m.writeConfig()
 }
+
 
 func (m *UnblockManager) DelChain(vpnType, chainName string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	data := m.cachedConf
-	rules := data.RuleMap()
+	rules := m.cachedConf.RuleMap()
 	set, ok := rules[vpnType]
 	if !ok || *set == nil {
 		return fmt.Errorf("unknown or empty VPN type: %s", vpnType)
@@ -173,10 +172,10 @@ func (m *UnblockManager) DelChain(vpnType, chainName string) error {
 		return fmt.Errorf("chain not found: %s", chainName)
 	}
 	delete(*set, chainName)
-	fmt.Println(*set)
 
-	return m.writeConfig(data)
+	return m.writeConfig()
 }
+
 
 func (m *UnblockManager) GetRules(vpnType, chainName string) ([]string, error) {
 	m.mu.RLock()
