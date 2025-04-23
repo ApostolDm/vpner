@@ -48,12 +48,18 @@ func (s *SSService) StartOne(name string) error {
 
 func (s *SSService) start(name string) error {
 	ctx, cancel := context.WithCancel(context.Background())
-	err := s.manager.StartSS(ctx, name)
-	if err != nil {
-		cancel()
-		return err
-	}
 	s.process[name] = cancel
+
+	go func() {
+		err := s.manager.StartSS(ctx, name)
+		if err != nil {
+			log.Printf("ss-redir exited (%s): %v", name, err)
+		}
+		s.mu.Lock()
+		delete(s.process, name)
+		s.mu.Unlock()
+	}()
+
 	return nil
 }
 
@@ -65,6 +71,7 @@ func (s *SSService) StopOne(name string) {
 	if ok {
 		cancel()
 		delete(s.process, name)
+		log.Printf("stopped: %s", name)
 	}
 }
 
@@ -77,6 +84,11 @@ func (s *SSService) StopAll() {
 		log.Printf("stopped: %s", name)
 	}
 	s.process = make(map[string]context.CancelFunc)
+}
+
+func (s *SSService) RestartOne(name string) error {
+	s.StopOne(name)
+	return s.StartOne(name)
 }
 
 func (s *SSService) IsRunning(name string) bool {

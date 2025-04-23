@@ -73,6 +73,10 @@ func init() {
 	interfaceCmd.AddCommand(InterfaceScanCmd())
 	rootCmd.AddCommand(interfaceCmd)
 	// ss
+	ssCmd.AddCommand(ssNewCmd())
+	ssCmd.AddCommand(ssListCmd())
+	ssCmd.AddCommand(ssDelCmd())
+	ssCmd.AddCommand(ssManageCmd())
 	rootCmd.AddCommand(ssCmd)
 }
 

@@ -6,79 +6,86 @@ option go_package = "github.com/ApostolDmitry/vpner/proto;proto";
 import "structures.proto";
 
 service VpnerManager {
-    rpc unblockList (Empty) returns (UnblockListRequest);
-    rpc unblockAdd (UnblockAddResponse) returns (UnblockAddRequest);
-    rpc unblockDel (UnblockDelResponse) returns (UnblockDelRequest);
+  // Unblock rules
+  rpc UnblockList(Empty) returns (UnblockListResponse);
+  rpc UnblockAdd(UnblockAddRequest) returns (GenericResponse);
+  rpc UnblockDel(UnblockDelRequest) returns (GenericResponse);
 
-    rpc interfaceList (Empty) returns (InterfaceMap);
-    rpc interfaceScan (Empty) returns (InterfaceMap);
-    rpc interfaceAdd (InterfaceResponse) returns (InterfaceRequest);
-    rpc interfaceDel (InterfaceResponse) returns (InterfaceRequest);
+  // Interfaces
+  rpc InterfaceList(Empty) returns (InterfaceListResponse);
+  rpc InterfaceScan(Empty) returns (InterfaceListResponse);
+  rpc InterfaceAdd(InterfaceActionRequest) returns (GenericResponse);
+  rpc InterfaceDel(InterfaceActionRequest) returns (GenericResponse);
 
-    rpc dnsManage (DnsManageResponse) returns (DnsManageRequest);
+  // DNS management
+  rpc DnsManage(ManageRequest) returns (GenericResponse);
+  // SS manager
+  rpc SSCreate (structures.SSInfo) returns (GenericResponse);
+  rpc SSDelete (SSDeleteRequest) returns (GenericResponse);
+  rpc SSList (Empty) returns (SSListResponse);
+  rpc SSManage (SSManageRequest) returns (GenericResponse); 
+}
+
+
+message Empty {}
+
+message GenericResponse {
+  oneof result {
+    Success success = 1;
+    Error error = 2;
+  }
 }
 
 message Success {
-    string message = 1;
+  string message = 1;
 }
+
 message Error {
-    string message = 1;
+  string message = 1;
 }
 
-message UnblockListRequest {
-    repeated structures.UnblockInfo rules = 1;
+
+message UnblockListResponse {
+  repeated structures.UnblockInfo rules = 1;
 }
 
-message UnblockAddResponse {
-    string domain = 1;
-    string chain_name = 2;
-}
 message UnblockAddRequest {
-    oneof result {
-        Success success = 1;
-        Error error = 2;
-    }
+  string domain = 1;
+  string chain_name = 2;
 }
 
-message UnblockDelResponse {
-    string domain = 1;
-}
 message UnblockDelRequest {
-    oneof result {
-        Success success = 1;
-        Error error = 2;
-    }
+  string domain = 1;
 }
 
-message InterfaceMap {
-    repeated structures.InterfaceInfo interfaces = 1;
+
+message InterfaceListResponse {
+  repeated structures.InterfaceInfo interfaces = 1;
 }
 
-message InterfaceResponse {
-    string Id = 1;
-}
-message InterfaceRequest {
-    oneof result {
-        Success success = 1;
-        Error error = 2;
-    }
+message InterfaceActionRequest {
+  string id = 1;
 }
 
-message DnsManageResponse {
-    enum action {
-        START = 0;
-        STOP = 1;
-        STATUS = 3;
-        RESTART = 4;
-    }
-    action act = 1;
+
+message ManageRequest {
+  structures.ManageAction act = 1;
 }
 
-message DnsManageRequest {
-    oneof result {
-        Success success = 1;
-        Error error = 2;
-    }
+message SSManageRequest {
+  structures.ManageAction act = 1;
+  string chain_name = 2;
 }
 
-message Empty {}
+message SSDeleteRequest {
+  string chain_name = 1;
+}
+
+message SSCreateWithChainRequest {
+  structures.SSInfo ss = 1;
+  string chain_name = 2;
+}
+
+message SSListResponse {
+  repeated SSCreateWithChainRequest list = 1;
+}

@@ -21,52 +21,104 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type InterfaceInfoState int32
+type ManageAction int32
 
 const (
-	InterfaceInfo_UP      InterfaceInfoState = 0
-	InterfaceInfo_DOWN    InterfaceInfoState = 1
-	InterfaceInfo_UNKNOWN InterfaceInfoState = 2
+	ManageAction_START   ManageAction = 0
+	ManageAction_STOP    ManageAction = 1
+	ManageAction_STATUS  ManageAction = 2
+	ManageAction_RESTART ManageAction = 3
 )
 
-// Enum value maps for InterfaceInfoState.
+// Enum value maps for ManageAction.
 var (
-	InterfaceInfoState_name = map[int32]string{
+	ManageAction_name = map[int32]string{
+		0: "START",
+		1: "STOP",
+		2: "STATUS",
+		3: "RESTART",
+	}
+	ManageAction_value = map[string]int32{
+		"START":   0,
+		"STOP":    1,
+		"STATUS":  2,
+		"RESTART": 3,
+	}
+)
+
+func (x ManageAction) Enum() *ManageAction {
+	p := new(ManageAction)
+	*p = x
+	return p
+}
+
+func (x ManageAction) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (ManageAction) Descriptor() protoreflect.EnumDescriptor {
+	return file_structures_proto_enumTypes[0].Descriptor()
+}
+
+func (ManageAction) Type() protoreflect.EnumType {
+	return &file_structures_proto_enumTypes[0]
+}
+
+func (x ManageAction) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use ManageAction.Descriptor instead.
+func (ManageAction) EnumDescriptor() ([]byte, []int) {
+	return file_structures_proto_rawDescGZIP(), []int{0}
+}
+
+type InterfaceInfo_State int32
+
+const (
+	InterfaceInfo_UP      InterfaceInfo_State = 0
+	InterfaceInfo_DOWN    InterfaceInfo_State = 1
+	InterfaceInfo_UNKNOWN InterfaceInfo_State = 2
+)
+
+// Enum value maps for InterfaceInfo_State.
+var (
+	InterfaceInfo_State_name = map[int32]string{
 		0: "UP",
 		1: "DOWN",
 		2: "UNKNOWN",
 	}
-	InterfaceInfoState_value = map[string]int32{
+	InterfaceInfo_State_value = map[string]int32{
 		"UP":      0,
 		"DOWN":    1,
 		"UNKNOWN": 2,
 	}
 )
 
-func (x InterfaceInfoState) Enum() *InterfaceInfoState {
-	p := new(InterfaceInfoState)
+func (x InterfaceInfo_State) Enum() *InterfaceInfo_State {
+	p := new(InterfaceInfo_State)
 	*p = x
 	return p
 }
 
-func (x InterfaceInfoState) String() string {
+func (x InterfaceInfo_State) String() string {
 	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
 }
 
-func (InterfaceInfoState) Descriptor() protoreflect.EnumDescriptor {
-	return file_structures_proto_enumTypes[0].Descriptor()
+func (InterfaceInfo_State) Descriptor() protoreflect.EnumDescriptor {
+	return file_structures_proto_enumTypes[1].Descriptor()
 }
 
-func (InterfaceInfoState) Type() protoreflect.EnumType {
-	return &file_structures_proto_enumTypes[0]
+func (InterfaceInfo_State) Type() protoreflect.EnumType {
+	return &file_structures_proto_enumTypes[1]
 }
 
-func (x InterfaceInfoState) Number() protoreflect.EnumNumber {
+func (x InterfaceInfo_State) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
-// Deprecated: Use InterfaceInfoState.Descriptor instead.
-func (InterfaceInfoState) EnumDescriptor() ([]byte, []int) {
+// Deprecated: Use InterfaceInfo_State.Descriptor instead.
+func (InterfaceInfo_State) EnumDescriptor() ([]byte, []int) {
 	return file_structures_proto_rawDescGZIP(), []int{1, 0}
 }
 
@@ -135,7 +187,7 @@ type InterfaceInfo struct {
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	Type          string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
 	Description   string                 `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
-	Status        InterfaceInfoState     `protobuf:"varint,4,opt,name=status,proto3,enum=structures.InterfaceInfoState" json:"status,omitempty"`
+	Status        InterfaceInfo_State    `protobuf:"varint,4,opt,name=status,proto3,enum=structures.InterfaceInfo_State" json:"status,omitempty"`
 	Added         bool                   `protobuf:"varint,5,opt,name=added,proto3" json:"added,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -192,7 +244,7 @@ func (x *InterfaceInfo) GetDescription() string {
 	return ""
 }
 
-func (x *InterfaceInfo) GetStatus() InterfaceInfoState {
+func (x *InterfaceInfo) GetStatus() InterfaceInfo_State {
 	if x != nil {
 		return x.Status
 	}
@@ -202,6 +254,90 @@ func (x *InterfaceInfo) GetStatus() InterfaceInfoState {
 func (x *InterfaceInfo) GetAdded() bool {
 	if x != nil {
 		return x.Added
+	}
+	return false
+}
+
+type SSInfo struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Host          string                 `protobuf:"bytes,1,opt,name=host,proto3" json:"host,omitempty"`
+	Port          int32                  `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`
+	Password      string                 `protobuf:"bytes,3,opt,name=password,proto3" json:"password,omitempty"`
+	Method        string                 `protobuf:"bytes,4,opt,name=method,proto3" json:"method,omitempty"`
+	Mode          string                 `protobuf:"bytes,5,opt,name=mode,proto3" json:"mode,omitempty"`
+	AutoRun       bool                   `protobuf:"varint,6,opt,name=auto_run,json=autoRun,proto3" json:"auto_run,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SSInfo) Reset() {
+	*x = SSInfo{}
+	mi := &file_structures_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SSInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SSInfo) ProtoMessage() {}
+
+func (x *SSInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_structures_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SSInfo.ProtoReflect.Descriptor instead.
+func (*SSInfo) Descriptor() ([]byte, []int) {
+	return file_structures_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *SSInfo) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
+}
+
+func (x *SSInfo) GetPort() int32 {
+	if x != nil {
+		return x.Port
+	}
+	return 0
+}
+
+func (x *SSInfo) GetPassword() string {
+	if x != nil {
+		return x.Password
+	}
+	return ""
+}
+
+func (x *SSInfo) GetMethod() string {
+	if x != nil {
+		return x.Method
+	}
+	return ""
+}
+
+func (x *SSInfo) GetMode() string {
+	if x != nil {
+		return x.Mode
+	}
+	return ""
+}
+
+func (x *SSInfo) GetAutoRun() bool {
+	if x != nil {
+		return x.AutoRun
 	}
 	return false
 }
@@ -221,12 +357,25 @@ const file_structures_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12 \n" +
 	"\vdescription\x18\x03 \x01(\tR\vdescription\x127\n" +
-	"\x06status\x18\x04 \x01(\x0e2\x1f.structures.InterfaceInfo.stateR\x06status\x12\x14\n" +
+	"\x06status\x18\x04 \x01(\x0e2\x1f.structures.InterfaceInfo.StateR\x06status\x12\x14\n" +
 	"\x05added\x18\x05 \x01(\bR\x05added\"&\n" +
-	"\x05state\x12\x06\n" +
+	"\x05State\x12\x06\n" +
 	"\x02UP\x10\x00\x12\b\n" +
 	"\x04DOWN\x10\x01\x12\v\n" +
-	"\aUNKNOWN\x10\x02B,Z*github.com/ApostolDmitry/vpner/proto;protob\x06proto3"
+	"\aUNKNOWN\x10\x02\"\x93\x01\n" +
+	"\x06SSInfo\x12\x12\n" +
+	"\x04host\x18\x01 \x01(\tR\x04host\x12\x12\n" +
+	"\x04port\x18\x02 \x01(\x05R\x04port\x12\x1a\n" +
+	"\bpassword\x18\x03 \x01(\tR\bpassword\x12\x16\n" +
+	"\x06method\x18\x04 \x01(\tR\x06method\x12\x12\n" +
+	"\x04mode\x18\x05 \x01(\tR\x04mode\x12\x19\n" +
+	"\bauto_run\x18\x06 \x01(\bR\aautoRun*<\n" +
+	"\fManageAction\x12\t\n" +
+	"\x05START\x10\x00\x12\b\n" +
+	"\x04STOP\x10\x01\x12\n" +
+	"\n" +
+	"\x06STATUS\x10\x02\x12\v\n" +
+	"\aRESTART\x10\x03B,Z*github.com/ApostolDmitry/vpner/proto;protob\x06proto3"
 
 var (
 	file_structures_proto_rawDescOnce sync.Once
@@ -240,15 +389,17 @@ func file_structures_proto_rawDescGZIP() []byte {
 	return file_structures_proto_rawDescData
 }
 
-var file_structures_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_structures_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_structures_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_structures_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_structures_proto_goTypes = []any{
-	(InterfaceInfoState)(0), // 0: structures.InterfaceInfo.state
-	(*UnblockInfo)(nil),     // 1: structures.UnblockInfo
-	(*InterfaceInfo)(nil),   // 2: structures.InterfaceInfo
+	(ManageAction)(0),        // 0: structures.ManageAction
+	(InterfaceInfo_State)(0), // 1: structures.InterfaceInfo.State
+	(*UnblockInfo)(nil),      // 2: structures.UnblockInfo
+	(*InterfaceInfo)(nil),    // 3: structures.InterfaceInfo
+	(*SSInfo)(nil),           // 4: structures.SSInfo
 }
 var file_structures_proto_depIdxs = []int32{
-	0, // 0: structures.InterfaceInfo.status:type_name -> structures.InterfaceInfo.state
+	1, // 0: structures.InterfaceInfo.status:type_name -> structures.InterfaceInfo.State
 	1, // [1:1] is the sub-list for method output_type
 	1, // [1:1] is the sub-list for method input_type
 	1, // [1:1] is the sub-list for extension type_name
@@ -266,8 +417,8 @@ func file_structures_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_structures_proto_rawDesc), len(file_structures_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   2,
+			NumEnums:      2,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

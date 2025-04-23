@@ -50,12 +50,17 @@ func RunServer(ctx context.Context, cfg RunConfig) error {
 	}
 
 	ifManager := manager_interface.NewInterfaceManager("")
+	ssManager := network.NewSsManager("")
+	if err := ssManager.Init(); err != nil {
+		return fmt.Errorf("failed to init ss manager: %w", err)
+	}
 
 	serverImpl := &VpnerServer{
 		dns:       dnsService,
 		unblock:   unblock,
 		resolver:  resolver,
 		ifManager: ifManager,
+		ssManger:  ssManager,
 	}
 
 	var tcpServer, unixServer *grpc.Server

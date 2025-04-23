@@ -20,40 +20,37 @@ type VpnerServer struct {
 	unblock   *network.UnblockManager
 	resolver  *dohclient.Resolver
 	ifManager *interface_manager.Manager
+	ssManger  *network.SsManager
 }
 
-func (s *VpnerServer) DnsManage(ctx context.Context, req *grpcpb.DnsManageResponse) (*grpcpb.DnsManageRequest, error) {
-	switch req.GetAct() {
-	case grpcpb.DnsManageResponse_START:
+func (s *VpnerServer) DnsManage(ctx context.Context, req *grpcpb.ManageRequest) (*grpcpb.GenericResponse, error) {
+	switch req.Act {
+	case grpcpb.ManageAction_START:
 		if err := s.dns.Start(); err != nil {
-			return errorResponse(fmt.Sprintf("Failed to start DNS server: %v", err)), nil
+			return errorGeneric(fmt.Sprintf("Failed to start DNS server: %v", err)), nil
 		}
-		return successResponse("DNS server started successfully"), nil
-
-	case grpcpb.DnsManageResponse_STOP:
+		return successGeneric("DNS server started successfully"), nil
+	case grpcpb.ManageAction_STOP:
 		s.dns.Stop()
-		return successResponse("DNS server stopped successfully"), nil
-
-	case grpcpb.DnsManageResponse_STATUS:
+		return successGeneric("DNS server stopped successfully"), nil
+	case grpcpb.ManageAction_STATUS:
 		status := "DOWN"
 		if s.dns.IsRunning() {
 			status = "RUNNING"
 		}
-		return successResponse(fmt.Sprintf("DNS server status: %s", status)), nil
-
-	case grpcpb.DnsManageResponse_RESTART:
+		return successGeneric(fmt.Sprintf("DNS server status: %s", status)), nil
+	case grpcpb.ManageAction_RESTART:
 		s.dns.Stop()
 		if err := s.dns.Start(); err != nil {
-			return errorResponse(fmt.Sprintf("Failed to restart DNS server: %v", err)), nil
+			return errorGeneric(fmt.Sprintf("Failed to restart DNS server: %v", err)), nil
 		}
-		return successResponse("DNS server restarted successfully"), nil
-
+		return successGeneric("DNS server restarted successfully"), nil
 	default:
-		return errorResponse("Unknown DNS management action"), nil
+		return errorGeneric("Unknown DNS management action"), nil
 	}
 }
 
-func (s *VpnerServer) UnblockList(ctx context.Context, _ *grpcpb.Empty) (*grpcpb.UnblockListRequest, error) {
+func (s *VpnerServer) UnblockList(ctx context.Context, _ *grpcpb.Empty) (*grpcpb.UnblockListResponse, error) {
 	conf, err := s.unblock.GetAllRules()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to retrieve unblock rules: %v", err)
@@ -69,33 +66,29 @@ func (s *VpnerServer) UnblockList(ctx context.Context, _ *grpcpb.Empty) (*grpcpb
 			})
 		}
 	}
-
-	return &grpcpb.UnblockListRequest{Rules: result}, nil
+	return &grpcpb.UnblockListResponse{Rules: result}, nil
 }
 
-func (s *VpnerServer) UnblockAdd(ctx context.Context, req *grpcpb.UnblockAddResponse) (*grpcpb.UnblockAddRequest, error) {
+func (s *VpnerServer) UnblockAdd(ctx context.Context, req *grpcpb.UnblockAddRequest) (*grpcpb.GenericResponse, error) {
 	if req.ChainName == "" {
-		return errorAddResponse("Chain name is required"), nil
+		return errorGeneric("Chain name is required"), nil
 	}
 	if err := utils.ValidatePattern(req.Domain); err != nil {
-		return errorAddResponse(fmt.Sprintf("Invalid pattern: %v", err)), nil
+		return errorGeneric(fmt.Sprintf("Invalid pattern: %v", err)), nil
 	}
-
 	vpnType, exists := s.ifManager.GetInterfaceTypeByNameFromVpner(req.ChainName)
 	if !exists {
-		return errorAddResponse(fmt.Sprintf("Chain name '%s' does not exist", req.ChainName)), nil
+		return errorGeneric(fmt.Sprintf("Chain name '%s' does not exist", req.ChainName)), nil
 	}
-
 	allRules, err := s.unblock.GetAllRules()
 	if err != nil {
-		return errorAddResponse("Failed to load existing rules"), nil
+		return errorGeneric("Failed to load existing rules"), nil
 	}
-
 	for typ, setPtr := range allRules.RuleMap() {
 		for chain, rules := range *setPtr {
 			for _, existing := range rules {
 				if utils.PatternsOverlap(existing, req.Domain) {
-					return errorAddResponse(fmt.Sprintf(
+					return errorGeneric(fmt.Sprintf(
 						"New rule '%s' overlaps with existing rule '%s' in [%s/%s]",
 						req.Domain, existing, typ, chain,
 					)), nil
@@ -103,38 +96,33 @@ func (s *VpnerServer) UnblockAdd(ctx context.Context, req *grpcpb.UnblockAddResp
 			}
 		}
 	}
-
 	if err := s.unblock.AddRule(vpnType, req.ChainName, req.Domain); err != nil {
-		return errorAddResponse("Failed to add rule"), nil
+		return errorGeneric("Failed to add rule"), nil
 	}
-
-	return successAddResponse("Rule added successfully"), nil
+	return successGeneric("Rule added successfully"), nil
 }
 
-func (s *VpnerServer) UnblockDel(ctx context.Context, req *grpcpb.UnblockDelResponse) (*grpcpb.UnblockDelRequest, error) {
+func (s *VpnerServer) UnblockDel(ctx context.Context, req *grpcpb.UnblockDelRequest) (*grpcpb.GenericResponse, error) {
 	if err := utils.ValidatePattern(req.Domain); err != nil {
-		return errorDelResponse(fmt.Sprintf("Invalid pattern: %v", err)), nil
+		return errorGeneric(fmt.Sprintf("Invalid pattern: %v", err)), nil
 	}
-
 	vpnType, chainName, exists := s.unblock.MatchDomain(req.Domain)
 	if !exists {
-		return errorDelResponse("Rule does not exist"), nil
+		return errorGeneric("Rule does not exist"), nil
 	}
-
 	if err := s.unblock.DelRule(vpnType, chainName, req.Domain); err != nil {
-		return errorDelResponse("Failed to delete rule"), nil
+		return errorGeneric("Failed to delete rule"), nil
 	}
-
-	return successDelResponse("Rule deleted successfully"), nil
+	return successGeneric("Rule deleted successfully"), nil
 }
 
-func (s *VpnerServer) InterfaceList(ctx context.Context, _ *grpcpb.Empty) (*grpcpb.InterfaceMap, error) {
+func (s *VpnerServer) InterfaceList(ctx context.Context, _ *grpcpb.Empty) (*grpcpb.InterfaceListResponse, error) {
 	interfaces, err := s.ifManager.LoadInterfacesFromFile()
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed read load Interfaces: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to load interfaces: %v", err)
 	}
 	if len(interfaces.Interfaces) == 0 {
-		return nil, status.Errorf(codes.Internal, "interfaces does not exits: %v", err)
+		return nil, status.Errorf(codes.Internal, "interfaces do not exist")
 	}
 	var result []*grpcpb.InterfaceInfo
 	for id, iface := range interfaces.Interfaces {
@@ -145,20 +133,20 @@ func (s *VpnerServer) InterfaceList(ctx context.Context, _ *grpcpb.Empty) (*grpc
 			Status:      returnIfStatus(iface.State),
 		})
 	}
-	return &grpcpb.InterfaceMap{Interfaces: result}, nil
+	return &grpcpb.InterfaceListResponse{Interfaces: result}, nil
 }
 
-func (s *VpnerServer) InterfaceScan(ctx context.Context, _ *grpcpb.Empty) (*grpcpb.InterfaceMap, error) {
+func (s *VpnerServer) InterfaceScan(ctx context.Context, _ *grpcpb.Empty) (*grpcpb.InterfaceListResponse, error) {
 	interfaceMan, err := s.ifManager.FetchInterfaces()
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed read load Interfaces: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to scan interfaces: %v", err)
 	}
 	if len(interfaceMan) == 0 {
-		return nil, status.Errorf(codes.Internal, "interfaces does not exits: %v", err)
+		return nil, status.Errorf(codes.Internal, "no interfaces found")
 	}
 	interfacesFile, err := s.ifManager.LoadInterfacesFromFile()
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed read load Interfaces: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to load saved interfaces: %v", err)
 	}
 	added := make(map[string]bool)
 	for id := range interfacesFile.Interfaces {
@@ -178,35 +166,80 @@ func (s *VpnerServer) InterfaceScan(ctx context.Context, _ *grpcpb.Empty) (*grpc
 	sort.Slice(interfaces, func(i, j int) bool {
 		return interfaces[i].Id < interfaces[j].Id
 	})
-
-	return &grpcpb.InterfaceMap{Interfaces: interfaces}, nil
+	return &grpcpb.InterfaceListResponse{Interfaces: interfaces}, nil
 }
 
-func (s *VpnerServer) InterfaceAdd(ctx context.Context, req *grpcpb.InterfaceResponse) (*grpcpb.InterfaceRequest, error) {
-	err := s.ifManager.AddInterface(req.Id)
-	if err != nil {
-		return errorInterfaceResponse(fmt.Sprintf("Failed to add interface: %v", err)), nil
+func (s *VpnerServer) SSCreate(ctx context.Context, req *grpcpb.SSInfo) (*grpcpb.GenericResponse, error) {
+	if err := s.ssManger.CreateSS(network.SSminConfig{
+		Host:       req.Host,
+		ServerPort: int(req.Port),
+		Mode:       req.Mode,
+		Password: req.Password,
+		Method:     req.Method,
+		AutoRun:   req.AutoRun,
+	}); err != nil {
+		return errorGeneric(fmt.Sprintf("Failed to create SS: %v", err)), nil
 	}
-	return &grpcpb.InterfaceRequest{
-		Result: &grpcpb.InterfaceRequest_Success{
-			Success: &grpcpb.Success{Message: fmt.Sprintf("Interface added successfully: %s", req.Id)},
-		},
-	}, nil
+	return successGeneric(fmt.Sprintf("SS created successfully: %s", req.Host)), nil
+}
+func (s *VpnerServer) SSDelete(ctx context.Context, req *grpcpb.SSDeleteRequest) (*grpcpb.GenericResponse, error) {
+	if err := s.ssManger.DeleteSS(req.ChainName); err != nil {
+		return errorGeneric(fmt.Sprintf("Failed to delete SS: %v", err)), nil
+	}
+	var errors []string
+	if err := s.unblock.DelChain("Shadowsocks", req.ChainName); err != nil {
+		errors = append(errors, fmt.Sprintf("Failed to delete unblock chain: %v", err))
+	}
+	if err := s.ifManager.DeleteInterface(req.ChainName); err != nil {
+		errors = append(errors, fmt.Sprintf("Failed to delete interface: %v", err))
+	}
+	if len(errors) > 0 {
+		return errorGeneric(fmt.Sprintf("Errors occurred: %v", errors)), nil
+	}
+	return successGeneric(fmt.Sprintf("SS deleted successfully: %s", req.ChainName)), nil
 }
 
-func (s *VpnerServer) InterfaceDel(ctx context.Context, req *grpcpb.InterfaceResponse) (*grpcpb.InterfaceRequest, error) {
+func (s *VpnerServer) SSList(ctx context.Context, _ *grpcpb.Empty) (*grpcpb.SSListResponse, error) {
+	ssList := s.ssManger.GetAll()
+	if len(ssList) == 0 {
+		return nil, status.Errorf(codes.Internal, "no SS configurations found")
+	}
+	var ssConfigs []*grpcpb.SSCreateWithChainRequest
+	for name, config := range ssList {
+		ssConfigs = append(ssConfigs, &grpcpb.SSCreateWithChainRequest{
+			ChainName: name,
+			Ss: &grpcpb.SSInfo{
+				Host:       config.Host,
+				Port:       int32(config.ServerPort),
+				Mode:       config.Mode,
+				Password:   config.Password,
+				Method:     config.Method,
+				AutoRun:    config.AutoRun,
+			},
+		})
+	}
+	sort.Slice(ssConfigs, func(i, j int) bool {
+		return ssConfigs[i].ChainName < ssConfigs[j].ChainName
+	})
+	return &grpcpb.SSListResponse{List: ssConfigs}, nil
+}
+
+func (s *VpnerServer) InterfaceAdd(ctx context.Context, req *grpcpb.InterfaceActionRequest) (*grpcpb.GenericResponse, error) {
+	if err := s.ifManager.AddInterface(req.Id); err != nil {
+		return errorGeneric(fmt.Sprintf("Failed to add interface: %v", err)), nil
+	}
+	return successGeneric(fmt.Sprintf("Interface added successfully: %s", req.Id)), nil
+}
+
+func (s *VpnerServer) InterfaceDel(ctx context.Context, req *grpcpb.InterfaceActionRequest) (*grpcpb.GenericResponse, error) {
 	vpnType, exists := s.ifManager.GetInterfaceTypeByNameFromRouter(req.Id)
 	if exists {
 		s.unblock.DelChain(vpnType, req.Id)
 	}
-	return &grpcpb.InterfaceRequest{
-		Result: &grpcpb.InterfaceRequest_Success{
-			Success: &grpcpb.Success{Message: fmt.Sprintf("Interface deleted successfully: %s", req.Id)},
-		},
-	}, nil
+	return successGeneric(fmt.Sprintf("Interface deleted successfully: %s", req.Id)), nil
 }
 
-func returnIfStatus(status string) grpcpb.InterfaceInfoState {
+func returnIfStatus(status string) grpcpb.InterfaceInfo_State {
 	switch status {
 	case "up":
 		return grpcpb.InterfaceInfo_UP
@@ -216,57 +249,18 @@ func returnIfStatus(status string) grpcpb.InterfaceInfoState {
 		return grpcpb.InterfaceInfo_UNKNOWN
 	}
 }
-func successResponse(msg string) *grpcpb.DnsManageRequest {
-	return &grpcpb.DnsManageRequest{
-		Result: &grpcpb.DnsManageRequest_Success{
+
+func successGeneric(msg string) *grpcpb.GenericResponse {
+	return &grpcpb.GenericResponse{
+		Result: &grpcpb.GenericResponse_Success{
 			Success: &grpcpb.Success{Message: msg},
 		},
 	}
 }
 
-func errorResponse(msg string) *grpcpb.DnsManageRequest {
-	return &grpcpb.DnsManageRequest{
-		Result: &grpcpb.DnsManageRequest_Error{
-			Error: &grpcpb.Error{Message: msg},
-		},
-	}
-}
-
-func successAddResponse(msg string) *grpcpb.UnblockAddRequest {
-	return &grpcpb.UnblockAddRequest{
-		Result: &grpcpb.UnblockAddRequest_Success{
-			Success: &grpcpb.Success{Message: msg},
-		},
-	}
-}
-
-func errorAddResponse(msg string) *grpcpb.UnblockAddRequest {
-	return &grpcpb.UnblockAddRequest{
-		Result: &grpcpb.UnblockAddRequest_Error{
-			Error: &grpcpb.Error{Message: msg},
-		},
-	}
-}
-
-func successDelResponse(msg string) *grpcpb.UnblockDelRequest {
-	return &grpcpb.UnblockDelRequest{
-		Result: &grpcpb.UnblockDelRequest_Success{
-			Success: &grpcpb.Success{Message: msg},
-		},
-	}
-}
-
-func errorDelResponse(msg string) *grpcpb.UnblockDelRequest {
-	return &grpcpb.UnblockDelRequest{
-		Result: &grpcpb.UnblockDelRequest_Error{
-			Error: &grpcpb.Error{Message: msg},
-		},
-	}
-}
-
-func errorInterfaceResponse(msg string) *grpcpb.InterfaceRequest {
-	return &grpcpb.InterfaceRequest{
-		Result: &grpcpb.InterfaceRequest_Error{
+func errorGeneric(msg string) *grpcpb.GenericResponse {
+	return &grpcpb.GenericResponse{
+		Result: &grpcpb.GenericResponse_Error{
 			Error: &grpcpb.Error{Message: msg},
 		},
 	}

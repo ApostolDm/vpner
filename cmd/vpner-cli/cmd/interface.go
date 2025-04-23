@@ -1,3 +1,4 @@
+
 package cmd
 
 import (
@@ -104,37 +105,38 @@ func InterfaceScanCmd() *cobra.Command {
 				fmt.Printf("Вы выбрали интерфейс: %s (%s)\n", selected.Id, selected.Type)
 				callCtx, callCancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer callCancel()
-				if !selected.Added {
 
-					addResp, err := client.InterfaceAdd(callCtx, &pb.InterfaceResponse{Id: selected.Id})
+				req := &pb.InterfaceActionRequest{Id: selected.Id}
+
+				if !selected.Added {
+					addResp, err := client.InterfaceAdd(callCtx, req)
 					if err != nil {
 						color.Red("Ошибка при добавлении интерфейса: %v", err)
 						continue
 					}
 					switch r := addResp.Result.(type) {
-					case *pb.InterfaceRequest_Success:
+					case *pb.GenericResponse_Success:
 						color.Green("Успешно добавлено: %s", r.Success.Message)
-					case *pb.InterfaceRequest_Error:
+					case *pb.GenericResponse_Error:
 						color.Red("Ошибка: %s", r.Error.Message)
 					default:
 						color.Red("Неизвестный результат")
 					}
 				} else {
-					delResp, err := client.InterfaceDel(callCtx, &pb.InterfaceResponse{Id: selected.Id})
+					delResp, err := client.InterfaceDel(callCtx, req)
 					if err != nil {
 						color.Red("Ошибка при удалении интерфейса: %v", err)
 						continue
 					}
 					switch r := delResp.Result.(type) {
-					case *pb.InterfaceRequest_Success:
+					case *pb.GenericResponse_Success:
 						color.Green("Успешно удалено: %s", r.Success.Message)
-					case *pb.InterfaceRequest_Error:
+					case *pb.GenericResponse_Error:
 						color.Red("Ошибка: %s", r.Error.Message)
 					default:
 						color.Red("Неизвестный результат")
 					}
 				}
-
 				break
 			}
 		},

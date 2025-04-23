@@ -15,33 +15,33 @@ var dnsCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		actionStr := strings.ToLower(args[0])
-		var action pb.DnsManageResponseAction
+		var action pb.ManageAction
 
 		switch actionStr {
 		case "start":
-			action = pb.DnsManageResponse_START
+			action = pb.ManageAction_START
 		case "down":
-			action = pb.DnsManageResponse_STOP
+			action = pb.ManageAction_STOP
 		case "status":
-			action = pb.DnsManageResponse_STATUS
+			action = pb.ManageAction_STATUS
 		case "restart":
-			action = pb.DnsManageResponse_RESTART
+			action = pb.ManageAction_RESTART
 		default:
 			fmt.Fprintf(os.Stderr, "Неизвестное действие: %s\n", actionStr)
 			os.Exit(1)
 		}
 
 		client := pb.NewVpnerManagerClient(conn)
-		resp, err := client.DnsManage(ctx, &pb.DnsManageResponse{Act: action})
+		resp, err := client.DnsManage(ctx, &pb.ManageRequest{Act: action})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "gRPC ошибка: %v\n", err)
 			os.Exit(1)
 		}
 
 		switch r := resp.Result.(type) {
-		case *pb.DnsManageRequest_Success:
+		case *pb.GenericResponse_Success:
 			fmt.Println(r.Success.Message)
-		case *pb.DnsManageRequest_Error:
+		case *pb.GenericResponse_Error:
 			fmt.Printf("Ошибка: %s\n", r.Error.Message)
 		default:
 			fmt.Println("Неизвестный ответ")

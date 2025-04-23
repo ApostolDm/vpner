@@ -57,23 +57,22 @@ func UnblockAddCmd() *cobra.Command {
 				return
 			}
 			client := pb.NewVpnerManagerClient(conn)
-			resp, err := client.UnblockAdd(ctx, &pb.UnblockAddResponse{Domain: pattern, ChainName: chainName})
+			resp, err := client.UnblockAdd(ctx, &pb.UnblockAddRequest{Domain: pattern, ChainName: chainName})
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Ошибка: %v\n", err)
 				os.Exit(1)
 				return
 			}
 			switch r := resp.Result.(type) {
-			case *pb.UnblockAddRequest_Success:
-				fmt.Println("Успешно:", r.Success)
+			case *pb.GenericResponse_Success:
+				fmt.Println("Успешно:", r.Success.Message)
 
-			case *pb.UnblockAddRequest_Error:
+			case *pb.GenericResponse_Error:
 				fmt.Println("Ошибка:", r.Error.Message)
 
 			default:
 				fmt.Println("Неизвестный результат")
 			}
-
 		},
 	}
 	cmd.Flags().StringP("chainName", "c", "", "Имя интерфейса, к которому применяются правила. Посмотреть можно: vpner-cli vpn list")
@@ -93,23 +92,22 @@ func UnblockDelCmd() *cobra.Command {
 				return
 			}
 			client := pb.NewVpnerManagerClient(conn)
-			resp, err := client.UnblockDel(ctx, &pb.UnblockDelResponse{Domain: pattern})
+			resp, err := client.UnblockDel(ctx, &pb.UnblockDelRequest{Domain: pattern})
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Ошибка: %v\n", err)
 				os.Exit(1)
 				return
 			}
 			switch r := resp.Result.(type) {
-			case *pb.UnblockDelRequest_Success:
-				fmt.Println("Успешно:", r.Success)
+			case *pb.GenericResponse_Success:
+				fmt.Println("Успешно:", r.Success.Message)
 
-			case *pb.UnblockDelRequest_Error:
+			case *pb.GenericResponse_Error:
 				fmt.Println("Ошибка:", r.Error.Message)
 
 			default:
 				fmt.Println("Неизвестный результат")
 			}
-
 		},
 	}
 	return cmd

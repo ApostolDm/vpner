@@ -14,14 +14,19 @@ import (
 
 const defaultSSConfigFile = "/opt/etc/vpner/vpner_ss.yaml"
 
+type SSminConfig struct {
+	Host       string `yaml:"host"`
+	ServerPort int    `yaml:"server_port"`
+	Mode       string `yaml:"mode"`
+	Password   string `yaml:"password"`
+	Method     string `yaml:"method"`
+	AutoRun    bool   `yaml:"auto_run"`
+}
+
 type SSConfig struct {
-	Host       string `json:"host"`
-	ServerPort int    `json:"server_port"`
-	LocalPort  int    `json:"local_port"`
-	Mode       string `json:"mode"`
-	Password   string `json:"password"`
-	Method     string `json:"method"`
-	Timeout    int    `json:"timeout"`
+	SSminConfig
+	LocalPort int `yaml:"local_port"`
+	Timeout   int `yaml:"timeout"`
 }
 
 type SsManager struct {
@@ -40,9 +45,9 @@ func NewSsManager(path string) *SsManager {
 	}
 }
 
-func (ss *SsManager) сheckDependencies() error {
+func (ss *SsManager) checkDependencies() error {
 	if _, err := exec.LookPath("ss-redir"); err != nil {
-		log.Fatalf("ss-redir not found in PATH: %v", err)
+		return fmt.Errorf("ss-redir not found in PATH: %v", err)
 	}
 	return nil
 }
@@ -55,41 +60,80 @@ func (ss *SsManager) Init() error {
 	if err != nil {
 		return err
 	}
-	if data == nil {
-		return nil
+	if data != nil {
+		ss.mu.Lock()
+		defer ss.mu.Unlock()
+		ss.cachedConf = data
 	}
-	ss.mu.Lock()
-	defer ss.mu.Unlock()
-	ss.cachedConf = data
 	return nil
 }
 
-func (ss *SsManager) CreateSS(cfg SSConfig) error {
-	if err := ss.сheckDependencies(); err != nil {
+func (ss *SsManager) validateSSminConfig(min *SSminConfig) error {
+	if min.Host == "" {
+		return fmt.Errorf("host is required")
+	}
+	if min.ServerPort <= 0 || min.ServerPort > 65535 {
+		return fmt.Errorf("invalid server port: %d", min.ServerPort)
+	}
+	switch min.Mode {
+	case "tcp", "udp", "tcp_and_udp":
+	default:
+		return fmt.Errorf("invalid mode: %s", min.Mode)
+	}
+	if min.Password == "" {
+		return fmt.Errorf("password is required")
+	}
+	if min.Method == "" {
+		return fmt.Errorf("method is required")
+	}
+	return nil
+}
+
+func (ss *SsManager) CreateSS(min SSminConfig) error {
+	if err := ss.checkDependencies(); err != nil {
 		return err
 	}
+	if err := ss.validateSSminConfig(&min); err != nil {
+		return err
+	}
+
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 
+	usedPorts := make(map[int]bool)
 	for _, existing := range ss.cachedConf {
-		if ss.isSameConfig(&cfg, existing) {
-			return fmt.Errorf("such configuration already exists")
+		usedPorts[existing.LocalPort] = true
+		if ss.isSameMinConfig(&min, existing) {
+			return fmt.Errorf("a configuration with the same parameters already exists")
 		}
 	}
-	var newName string
-	for i := 1; ; i++ {
-		candidate := fmt.Sprintf("ss%d", i)
-		if _, exists := ss.cachedConf[candidate]; !exists {
-			newName = candidate
-			break
-		}
-	}
-	ss.cachedConf[newName] = &cfg
 
+	localPort, err := findFreePort(usedPorts, 1080, 11000)
+	if err != nil {
+		return err
+	}
+
+	cfg := SSConfig{
+		SSminConfig: min,
+		LocalPort:   localPort,
+		Timeout:     300,
+	}
+
+	newName := ss.generateUniqueName()
+	ss.cachedConf[newName] = &cfg
 	return ss.writeConfig()
 }
+
+func (ss *SsManager) isSameMinConfig(min *SSminConfig, full *SSConfig) bool {
+	return min.Host == full.Host &&
+		min.ServerPort == full.ServerPort &&
+		min.Mode == full.Mode &&
+		min.Password == full.Password &&
+		min.Method == full.Method
+}
+
 func (ss *SsManager) DeleteSS(chainName string) error {
-	if err := ss.сheckDependencies(); err != nil {
+	if err := ss.checkDependencies(); err != nil {
 		return err
 	}
 
@@ -99,11 +143,10 @@ func (ss *SsManager) DeleteSS(chainName string) error {
 	if _, exists := ss.cachedConf[chainName]; !exists {
 		return fmt.Errorf("no such chain: %s", chainName)
 	}
-
 	delete(ss.cachedConf, chainName)
-
 	return ss.writeConfig()
 }
+
 func (ss *SsManager) loadFromFile() (map[string]*SSConfig, error) {
 	file, err := os.Open(ss.ConfigFile)
 	if os.IsNotExist(err) {
@@ -134,22 +177,11 @@ func (ss *SsManager) writeConfig() error {
 	return nil
 }
 
-func (ss *SsManager) isSameConfig(a, b *SSConfig) bool {
-	if a == nil && b == nil {
-		return true
-	}
-	if a == nil || b == nil {
-		return false
-	}
-	return a.Host == b.Host && a.ServerPort == b.ServerPort && a.LocalPort == b.LocalPort &&
-		a.Mode == b.Mode && a.Password == b.Password && a.Method == b.Method && a.Timeout == b.Timeout
-}
-
 func (ss *SsManager) StartSS(ctx context.Context, chainName string) error {
 	ss.mu.RLock()
-	defer ss.mu.RUnlock()
-
 	config, exists := ss.cachedConf[chainName]
+	ss.mu.RUnlock()
+
 	if !exists {
 		return fmt.Errorf("no such chain: %s", chainName)
 	}
@@ -175,7 +207,6 @@ func (ss *SsManager) StartSS(ctx context.Context, chainName string) error {
 	}
 
 	cmd := exec.Command("ss-redir", cmdArgs...)
-
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -192,9 +223,13 @@ func (ss *SsManager) StartSS(ctx context.Context, chainName string) error {
 		}
 	}()
 
-	if err := cmd.Wait(); err != nil {
-		return fmt.Errorf("ss-redir exited with error: %w", err)
-	}
+	go func() {
+		if err := cmd.Wait(); err != nil {
+			log.Printf("ss-redir (%s) exited with error: %v", chainName, err)
+		} else {
+			log.Printf("ss-redir (%s) exited normally", chainName)
+		}
+	}()
 
 	return nil
 }
@@ -207,4 +242,22 @@ func (ss *SsManager) GetAll() map[string]*SSConfig {
 		copy[k] = v
 	}
 	return copy
+}
+
+func findFreePort(used map[int]bool, min, max int) (int, error) {
+	for port := min; port <= max; port++ {
+		if !used[port] {
+			return port, nil
+		}
+	}
+	return 0, fmt.Errorf("no free local port in range %d–%d", min, max)
+}
+
+func (ss *SsManager) generateUniqueName() string {
+	for i := 1; ; i++ {
+		name := fmt.Sprintf("ss%d", i)
+		if _, exists := ss.cachedConf[name]; !exists {
+			return name
+		}
+	}
 }
