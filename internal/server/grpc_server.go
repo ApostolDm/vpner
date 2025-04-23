@@ -40,7 +40,13 @@ func RunServer(ctx context.Context, cfg RunConfig) error {
 		return fmt.Errorf("failed to init unblock manager: %w", err)
 	}
 
+	ssManager := network.NewSsManager("")
+	if err := ssManager.Init(); err != nil {
+		return fmt.Errorf("failed to init ss manager: %w", err)
+	}
+
 	dnsService := NewDNSService(cfg.DNSConfig, unblock, resolver)
+	ssService := NewSSService(ssManager)
 
 	if cfg.DNSConfig.Running {
 		log.Println("Autostart DNS-server form config")
@@ -50,13 +56,10 @@ func RunServer(ctx context.Context, cfg RunConfig) error {
 	}
 
 	ifManager := manager_interface.NewInterfaceManager("")
-	ssManager := network.NewSsManager("")
-	if err := ssManager.Init(); err != nil {
-		return fmt.Errorf("failed to init ss manager: %w", err)
-	}
 
 	serverImpl := &VpnerServer{
 		dns:       dnsService,
+		ss:        ssService,
 		unblock:   unblock,
 		resolver:  resolver,
 		ifManager: ifManager,

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/ApostolDmitry/vpner/internal/network"
 )
@@ -48,31 +49,41 @@ func (s *SSService) StartOne(name string) error {
 
 func (s *SSService) start(name string) error {
 	ctx, cancel := context.WithCancel(context.Background())
-	s.process[name] = cancel
 
+	s.process[name] = cancel
+	errCh := make(chan error, 1)
 	go func() {
-		err := s.manager.StartSS(ctx, name)
-		if err != nil {
-			log.Printf("ss-redir exited (%s): %v", name, err)
-		}
+		errCh <- s.manager.StartSS(ctx, name)
 		s.mu.Lock()
 		delete(s.process, name)
 		s.mu.Unlock()
 	}()
-
+	select {
+	case err := <-errCh:
+		if err != nil {
+			return fmt.Errorf("ss-redir exited (%s): %v", name, err)
+		} else {
+			log.Printf("ss-redir (%s) exited normally", name)
+		}
+	case <-time.After(1 * time.Second):
+		log.Printf("ss-redir (%s) started successfully", name)
+	}
 	return nil
 }
 
-func (s *SSService) StopOne(name string) {
+func (s *SSService) StopOne(name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
 	cancel, ok := s.process[name]
 	if ok {
 		cancel()
 		delete(s.process, name)
 		log.Printf("stopped: %s", name)
+
+	} else {
+		return fmt.Errorf("%s not running", name)
 	}
+	return nil
 }
 
 func (s *SSService) StopAll() {
@@ -87,7 +98,22 @@ func (s *SSService) StopAll() {
 }
 
 func (s *SSService) RestartOne(name string) error {
-	s.StopOne(name)
+	if err := s.StopOne(name); err != nil {
+		log.Printf("warn: StopOne during restart failed: %v", err)
+	}
+
+	for i := 0; i < 10; i++ {
+		time.Sleep(100 * time.Millisecond)
+
+		s.mu.Lock()
+		_, stillRunning := s.process[name]
+		s.mu.Unlock()
+
+		if !stillRunning {
+			break
+		}
+	}
+
 	return s.StartOne(name)
 }
 

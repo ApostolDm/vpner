@@ -24,15 +24,38 @@ type SSminConfig struct {
 }
 
 type SSConfig struct {
-	SSminConfig
-	LocalPort int `yaml:"local_port"`
-	Timeout   int `yaml:"timeout"`
+	SSminConfig `yaml:",inline"`
+	LocalPort   int `yaml:"local_port"`
+	Timeout     int `yaml:"timeout"`
 }
 
 type SsManager struct {
 	cachedConf map[string]*SSConfig
 	ConfigFile string
 	mu         sync.RWMutex
+}
+
+type taggedPrefixWriter struct {
+	prefix string
+	target io.Writer
+	buf    []byte
+}
+
+func (w *taggedPrefixWriter) Write(p []byte) (int, error) {
+	start := 0
+	for i, b := range p {
+		if b == '\n' {
+			line := append([]byte(w.prefix), p[start:i+1]...)
+			if _, err := w.target.Write(line); err != nil {
+				return 0, err
+			}
+			start = i + 1
+		}
+	}
+	if start < len(p) {
+		w.buf = append(w.buf, p[start:]...)
+	}
+	return len(p), nil
 }
 
 func NewSsManager(path string) *SsManager {
@@ -188,7 +211,7 @@ func (ss *SsManager) StartSS(ctx context.Context, chainName string) error {
 
 	cmdArgs := []string{
 		"-t", fmt.Sprintf("%d", config.Timeout),
-		"-l", fmt.Sprintf(":%d", config.LocalPort),
+		"-l", fmt.Sprintf("%d", config.LocalPort),
 		"-s", config.Host,
 		"-p", fmt.Sprintf("%d", config.ServerPort),
 		"-m", config.Method,
@@ -207,8 +230,9 @@ func (ss *SsManager) StartSS(ctx context.Context, chainName string) error {
 	}
 
 	cmd := exec.Command("ss-redir", cmdArgs...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	prefix := fmt.Sprintf("[ss-%s] ", chainName)
+	cmd.Stdout = &taggedPrefixWriter{prefix: prefix, target: os.Stdout}
+	cmd.Stderr = &taggedPrefixWriter{prefix: prefix, target: os.Stderr}
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start ss-redir: %w", err)
@@ -222,15 +246,13 @@ func (ss *SsManager) StartSS(ctx context.Context, chainName string) error {
 			log.Printf("ss-redir process killed successfully")
 		}
 	}()
-
-	go func() {
-		if err := cmd.Wait(); err != nil {
-			log.Printf("ss-redir (%s) exited with error: %v", chainName, err)
-		} else {
-			log.Printf("ss-redir (%s) exited normally", chainName)
-		}
-	}()
-
+	if err := cmd.Wait(); err != nil {
+		log.Printf("ss-redir (%s) exited with error: %v", chainName, err)
+	} else if !cmd.ProcessState.Success() {
+		log.Printf("ss-redir (%s) exited non-zero: %s", chainName, cmd.ProcessState.String())
+	} else {
+		log.Printf("ss-redir (%s) exited normally", chainName)
+	}
 	return nil
 }
 

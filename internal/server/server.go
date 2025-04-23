@@ -17,6 +17,7 @@ import (
 type VpnerServer struct {
 	grpcpb.UnimplementedVpnerManagerServer
 	dns       *DNSService
+	ss        *SSService
 	unblock   *network.UnblockManager
 	resolver  *dohclient.Resolver
 	ifManager *interface_manager.Manager
@@ -169,14 +170,29 @@ func (s *VpnerServer) InterfaceScan(ctx context.Context, _ *grpcpb.Empty) (*grpc
 	return &grpcpb.InterfaceListResponse{Interfaces: interfaces}, nil
 }
 
+func (s *VpnerServer) InterfaceAdd(ctx context.Context, req *grpcpb.InterfaceActionRequest) (*grpcpb.GenericResponse, error) {
+	if err := s.ifManager.AddInterface(req.Id); err != nil {
+		return errorGeneric(fmt.Sprintf("Failed to add interface: %v", err)), nil
+	}
+	return successGeneric(fmt.Sprintf("Interface added successfully: %s", req.Id)), nil
+}
+
+func (s *VpnerServer) InterfaceDel(ctx context.Context, req *grpcpb.InterfaceActionRequest) (*grpcpb.GenericResponse, error) {
+	vpnType, exists := s.ifManager.GetInterfaceTypeByNameFromRouter(req.Id)
+	if exists {
+		s.unblock.DelChain(vpnType, req.Id)
+	}
+	return successGeneric(fmt.Sprintf("Interface deleted successfully: %s", req.Id)), nil
+}
+
 func (s *VpnerServer) SSCreate(ctx context.Context, req *grpcpb.SSInfo) (*grpcpb.GenericResponse, error) {
 	if err := s.ssManger.CreateSS(network.SSminConfig{
 		Host:       req.Host,
 		ServerPort: int(req.Port),
 		Mode:       req.Mode,
-		Password: req.Password,
+		Password:   req.Password,
 		Method:     req.Method,
-		AutoRun:   req.AutoRun,
+		AutoRun:    req.AutoRun,
 	}); err != nil {
 		return errorGeneric(fmt.Sprintf("Failed to create SS: %v", err)), nil
 	}
@@ -209,12 +225,12 @@ func (s *VpnerServer) SSList(ctx context.Context, _ *grpcpb.Empty) (*grpcpb.SSLi
 		ssConfigs = append(ssConfigs, &grpcpb.SSCreateWithChainRequest{
 			ChainName: name,
 			Ss: &grpcpb.SSInfo{
-				Host:       config.Host,
-				Port:       int32(config.ServerPort),
-				Mode:       config.Mode,
-				Password:   config.Password,
-				Method:     config.Method,
-				AutoRun:    config.AutoRun,
+				Host:     config.Host,
+				Port:     int32(config.ServerPort),
+				Mode:     config.Mode,
+				Password: config.Password,
+				Method:   config.Method,
+				AutoRun:  config.AutoRun,
 			},
 		})
 	}
@@ -224,19 +240,32 @@ func (s *VpnerServer) SSList(ctx context.Context, _ *grpcpb.Empty) (*grpcpb.SSLi
 	return &grpcpb.SSListResponse{List: ssConfigs}, nil
 }
 
-func (s *VpnerServer) InterfaceAdd(ctx context.Context, req *grpcpb.InterfaceActionRequest) (*grpcpb.GenericResponse, error) {
-	if err := s.ifManager.AddInterface(req.Id); err != nil {
-		return errorGeneric(fmt.Sprintf("Failed to add interface: %v", err)), nil
+func (s *VpnerServer) SSManage(ctx context.Context, req *grpcpb.SSManageRequest) (*grpcpb.GenericResponse, error) {
+	switch req.Act {
+	case grpcpb.ManageAction_START:
+		if err := s.ss.StartOne(req.ChainName); err != nil {
+			return errorGeneric(fmt.Sprintf("Failed to start SS: %v", err)), nil
+		}
+		return successGeneric(fmt.Sprintf("SS started successfully: %s", req.ChainName)), nil
+	case grpcpb.ManageAction_STOP:
+		if err := s.ss.StopOne(req.ChainName); err != nil {
+			return errorGeneric(fmt.Sprintf("Failed to stop SS: %v", err)), nil
+		}
+		return successGeneric(fmt.Sprintf("SS stopped successfully: %s", req.ChainName)), nil
+	case grpcpb.ManageAction_STATUS:
+		IsRunning := s.ss.IsRunning(req.ChainName)
+		if IsRunning {
+			return successGeneric(fmt.Sprintf("SS is running: %s", req.ChainName)), nil
+		}
+		return errorGeneric(fmt.Sprintf("SS is not running: %s", req.ChainName)), nil
+	case grpcpb.ManageAction_RESTART:
+		if err := s.ss.RestartOne(req.ChainName); err != nil {
+			return errorGeneric(fmt.Sprintf("Failed to restart SS: %v", err)), nil
+		}
+		return successGeneric(fmt.Sprintf("SS restarted successfully: %s", req.ChainName)), nil
+	default:
+		return errorGeneric("Unknown SS management action"), nil
 	}
-	return successGeneric(fmt.Sprintf("Interface added successfully: %s", req.Id)), nil
-}
-
-func (s *VpnerServer) InterfaceDel(ctx context.Context, req *grpcpb.InterfaceActionRequest) (*grpcpb.GenericResponse, error) {
-	vpnType, exists := s.ifManager.GetInterfaceTypeByNameFromRouter(req.Id)
-	if exists {
-		s.unblock.DelChain(vpnType, req.Id)
-	}
-	return successGeneric(fmt.Sprintf("Interface deleted successfully: %s", req.Id)), nil
 }
 
 func returnIfStatus(status string) grpcpb.InterfaceInfo_State {

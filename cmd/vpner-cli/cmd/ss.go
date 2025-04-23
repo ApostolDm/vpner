@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	pb "github.com/ApostolDmitry/vpner/internal/grpc"
+	"github.com/ApostolDmitry/vpner/internal/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -115,8 +116,18 @@ func ssListCmd() *cobra.Command {
 				return
 			}
 			for _, ss := range resp.List {
-				fmt.Printf("ID: %s, Метод: %s, Пароль: %s, Хост: %s, Порт: %d, АвтоЗапуск: %t\n",
-					ss.ChainName, ss.Ss.Method, ss.Ss.Password, ss.Ss.Host, ss.Ss.Port, ss.Ss.AutoRun)
+				table := utils.Table{
+					Rows: [][]string{
+						{"ID", ss.ChainName},
+						{"Метод", ss.Ss.Method},
+						{"Пароль", ss.Ss.Password},
+						{"Хост", ss.Ss.Host},
+						{"Порт", strconv.Itoa(int(ss.Ss.Port))},
+						{"АвтоЗапуск", strconv.FormatBool(ss.Ss.AutoRun)},
+					},
+				}
+				table.Print()
+
 			}
 			if len(resp.List) == 0 {
 				fmt.Println("Нет доступных ss соединений.")
