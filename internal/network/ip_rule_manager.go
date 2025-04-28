@@ -4,26 +4,18 @@ import (
 	"fmt"
 
 	"github.com/ApostolDmitry/vpner/internal/dohclient"
+	"github.com/ApostolDmitry/vpner/internal/utils"
 	"github.com/miekg/dns"
 )
 
-const (
-	defaultChainName = "vpner_unblock"
-)
 
 type ipRuleManager struct {
-	chainName      string
 	unblockManager *UnblockManager
 	resolver       *dohclient.Resolver
 }
 
-func NewIpRuleManager(chainName string, unblockManager *UnblockManager, resolver *dohclient.Resolver) *ipRuleManager {
-	if chainName == "" {
-		chainName = defaultChainName
-	}
-
+func NewIpRuleManager(unblockManager *UnblockManager, resolver *dohclient.Resolver) *ipRuleManager {
 	return &ipRuleManager{
-		chainName:      chainName,
 		unblockManager: unblockManager,
 		resolver:       resolver,
 	}
@@ -34,7 +26,6 @@ func (m *ipRuleManager) CheckIPsInIpset(domain string) error {
 	if !ok {
 		return nil
 	}
-
 	ips, err := m.resolver.ResolveDomain(domain, dns.TypeA)
 	if err != nil {
 		return fmt.Errorf("failed to resolve domain %q: %w", domain, err)
@@ -42,9 +33,10 @@ func (m *ipRuleManager) CheckIPsInIpset(domain string) error {
 	if len(ips) == 0 {
 		return nil
 	}
-	fmt.Println(domain)
-	fmt.Println(ips)
-	ipsetName := m.chainName + "-" + vpnType + "-" + chainName
+	ipsetName, err := utils.GetIpsetName(vpnType, chainName)
+	if err != nil {
+		return fmt.Errorf("failed to get ipset name for %q: %w", domain, err)
+	}
 	set, err := NewIPset(ipsetName, "hash:ip", &Params{})
 	if err != nil {
 		return fmt.Errorf("failed to create ipset %q: %w", ipsetName, err)

@@ -22,6 +22,7 @@ type VpnerServer struct {
 	resolver  *dohclient.Resolver
 	ifManager *interface_manager.Manager
 	ssManger  *network.SsManager
+	iptablesManager *network.IptablesManager
 }
 
 func (s *VpnerServer) DnsManage(ctx context.Context, req *grpcpb.ManageRequest) (*grpcpb.GenericResponse, error) {

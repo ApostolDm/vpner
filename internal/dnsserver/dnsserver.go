@@ -131,7 +131,7 @@ func (s *DNSServer) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 }
 
 func (s *DNSServer) processDomain(domain string) {
-	manager := network.NewIpRuleManager("", s.unblockManager, s.resolver)
+	manager := network.NewIpRuleManager(s.unblockManager, s.resolver)
 	if err := manager.CheckIPsInIpset(domain); err != nil {
 		log.Printf("IP rule error for domain %s: %v", domain, err)
 	}

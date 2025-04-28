@@ -35,12 +35,14 @@ type RunConfig struct {
 func RunServer(ctx context.Context, cfg RunConfig) error {
 	resolver := dohclient.NewResolver(cfg.ResolverConf)
 
+	iptablesManager := network.NewIptablesManager()
+
 	unblock := network.NewUnblockManager(cfg.UnblockPath)
 	if err := unblock.Init(); err != nil {
 		return fmt.Errorf("failed to init unblock manager: %w", err)
 	}
 
-	ssManager := network.NewSsManager("")
+	ssManager := network.NewSsManager("", iptablesManager)
 	if err := ssManager.Init(); err != nil {
 		return fmt.Errorf("failed to init ss manager: %w", err)
 	}
@@ -64,6 +66,7 @@ func RunServer(ctx context.Context, cfg RunConfig) error {
 		resolver:  resolver,
 		ifManager: ifManager,
 		ssManger:  ssManager,
+		iptablesManager: iptablesManager,
 	}
 
 	var tcpServer, unixServer *grpc.Server

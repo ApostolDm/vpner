@@ -9,10 +9,12 @@ import (
 	"os/exec"
 	"sync"
 
+	"github.com/ApostolDmitry/vpner/internal/utils"
 	"gopkg.in/yaml.v3"
 )
 
 const defaultSSConfigFile = "/opt/etc/vpner/vpner_ss.yaml"
+const defaultVpnType = "Shadowsocks"
 
 type SSminConfig struct {
 	Host       string `yaml:"host"`
@@ -33,6 +35,7 @@ type SsManager struct {
 	cachedConf map[string]*SSConfig
 	ConfigFile string
 	mu         sync.RWMutex
+	iptables   *IptablesManager
 }
 
 type taggedPrefixWriter struct {
@@ -58,13 +61,14 @@ func (w *taggedPrefixWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func NewSsManager(path string) *SsManager {
+func NewSsManager(path string, iptables *IptablesManager) *SsManager {
 	if path == "" {
 		path = defaultSSConfigFile
 	}
 	return &SsManager{
 		ConfigFile: path,
 		cachedConf: make(map[string]*SSConfig),
+		iptables:   iptables,
 	}
 }
 
@@ -238,12 +242,28 @@ func (ss *SsManager) StartSS(ctx context.Context, chainName string) error {
 		return fmt.Errorf("failed to start ss-redir: %w", err)
 	}
 
+	ipsetName, err := utils.GetIpsetName(defaultVpnType, chainName)
+	if err != nil {
+		cmd.Process.Kill()
+		return fmt.Errorf("failed to get ipset name: %w", err)
+	}
+
+	if err := ss.iptables.AddRules(defaultVpnType, ipsetName, config.LocalPort, "br0", ""); err != nil {
+		cmd.Process.Kill()
+		return fmt.Errorf("failed to add iptables rules: %w", err)
+	}
+
 	go func() {
 		<-ctx.Done()
 		if err := cmd.Process.Kill(); err != nil {
 			log.Printf("failed to kill ss-redir: %v", err)
 		} else {
 			log.Printf("ss-redir process killed successfully")
+		}
+		if err := ss.iptables.RemoveRules(ipsetName); err != nil {
+			log.Printf("failed to delete iptables rules: %v", err)
+		} else {
+			log.Printf("iptables rules deleted successfully")
 		}
 	}()
 	if err := cmd.Wait(); err != nil {
