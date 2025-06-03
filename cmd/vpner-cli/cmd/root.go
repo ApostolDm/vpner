@@ -115,5 +115,5 @@ func dialGRPC(addr, unix string) (*grpc.ClientConn, error) {
 		target = addr
 	}
 
-	return grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	return grpc.Dial(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
 }

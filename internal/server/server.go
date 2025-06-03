@@ -185,7 +185,12 @@ func (s *VpnerServer) InterfaceAdd(ctx context.Context, req *grpcpb.InterfaceAct
 func (s *VpnerServer) InterfaceDel(ctx context.Context, req *grpcpb.InterfaceActionRequest) (*grpcpb.GenericResponse, error) {
 	vpnType, exists := s.ifManager.GetInterfaceTypeByNameFromRouter(req.Id)
 	if exists {
-		s.unblock.DelChain(vpnType, req.Id)
+		if err := s.unblock.DelChain(vpnType, req.Id); err != nil {
+			return errorGeneric(fmt.Sprintf("Failed to delete unblock chain: %v", err)), nil
+		}
+	}
+	if err := s.ifManager.DeleteInterface(req.Id); err != nil {
+		return errorGeneric(fmt.Sprintf("Failed to delete interface: %v", err)), nil
 	}
 	return successGeneric(fmt.Sprintf("Interface deleted successfully: %s", req.Id)), nil
 }
@@ -241,7 +246,7 @@ func (s *VpnerServer) XrayManage(ctx context.Context, req *grpcpb.XrayManageRequ
 }
 
 func (s *VpnerServer) XrayCreate(ctx context.Context, req *grpcpb.XrayCreateRequest) (*grpcpb.GenericResponse, error) {
-	name, err := s.xrayManager.CreateXray(req.Link, req.AutoRun); 
+	name, err := s.xrayManager.CreateXray(req.Link, req.AutoRun)
 	if err != nil {
 		return errorGeneric(fmt.Sprintf("Failed to create Xray: %v", err)), nil
 	}
