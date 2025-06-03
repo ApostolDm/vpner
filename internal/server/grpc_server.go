@@ -41,14 +41,11 @@ func RunServer(ctx context.Context, cfg RunConfig) error {
 	if err := unblock.Init(); err != nil {
 		return fmt.Errorf("failed to init unblock manager: %w", err)
 	}
+	xrayManager := network.NewXrayManager()
 
-	ssManager := network.NewSsManager("", iptablesManager)
-	if err := ssManager.Init(); err != nil {
-		return fmt.Errorf("failed to init ss manager: %w", err)
-	}
+	XrayService := NewXrayService(xrayManager)
 
 	dnsService := NewDNSService(cfg.DNSConfig, unblock, resolver)
-	ssService := NewSSService(ssManager)
 
 	if cfg.DNSConfig.Running {
 		log.Println("Autostart DNS-server form config")
@@ -60,13 +57,13 @@ func RunServer(ctx context.Context, cfg RunConfig) error {
 	ifManager := manager_interface.NewInterfaceManager("")
 
 	serverImpl := &VpnerServer{
-		dns:       dnsService,
-		ss:        ssService,
-		unblock:   unblock,
-		resolver:  resolver,
-		ifManager: ifManager,
-		ssManger:  ssManager,
+		dns:             dnsService,
+		unblock:         unblock,
+		resolver:        resolver,
+		ifManager:       ifManager,
 		iptablesManager: iptablesManager,
+		xrayManager:     xrayManager,
+		xrayService:     XrayService,
 	}
 
 	var tcpServer, unixServer *grpc.Server

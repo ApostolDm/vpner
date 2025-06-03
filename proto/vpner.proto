@@ -19,11 +19,11 @@ service VpnerManager {
 
   // DNS management
   rpc DnsManage(ManageRequest) returns (GenericResponse);
-  // SS manager
-  rpc SSCreate (structures.SSInfo) returns (GenericResponse);
-  rpc SSDelete (SSDeleteRequest) returns (GenericResponse);
-  rpc SSList (Empty) returns (SSListResponse);
-  rpc SSManage (SSManageRequest) returns (GenericResponse); 
+  // xray manager
+  rpc XrayCreate (XrayCreateRequest) returns (GenericResponse);
+  rpc XrayDelete (XrayRequest) returns (GenericResponse);
+  rpc XrayList (Empty) returns (XrayListResponse);
+  rpc XrayManage(XrayManageRequest) returns (GenericResponse);
 }
 
 
@@ -72,20 +72,20 @@ message ManageRequest {
   structures.ManageAction act = 1;
 }
 
-message SSManageRequest {
-  structures.ManageAction act = 1;
-  string chain_name = 2;
+message XrayCreateRequest {
+  string link = 1;
+  bool auto_run = 2;
 }
 
-message SSDeleteRequest {
+message XrayRequest {
   string chain_name = 1;
 }
 
-message SSCreateWithChainRequest {
-  structures.SSInfo ss = 1;
-  string chain_name = 2;
+message XrayManageRequest {
+  string chain_name = 1;
+  structures.ManageAction act = 2;
 }
 
-message SSListResponse {
-  repeated SSCreateWithChainRequest list = 1;
+message XrayListResponse {
+  repeated structures.XrayInfo list = 1;
 }

@@ -73,11 +73,11 @@ func init() {
 	interfaceCmd.AddCommand(InterfaceScanCmd())
 	rootCmd.AddCommand(interfaceCmd)
 	// ss
-	ssCmd.AddCommand(ssNewCmd())
-	ssCmd.AddCommand(ssListCmd())
-	ssCmd.AddCommand(ssDelCmd())
-	ssCmd.AddCommand(ssManageCmd())
-	rootCmd.AddCommand(ssCmd)
+	xrayCmd.AddCommand(xrayNewCmd())
+	xrayCmd.AddCommand(xrayListCmd())
+	xrayCmd.AddCommand(xrayDelCmd())
+	xrayCmd.AddCommand(xrayManageCmd())
+	rootCmd.AddCommand(xrayCmd)
 }
 
 func resolveConnectionOptions(cfg *CLIConfig) (addr, unix, pass string) {

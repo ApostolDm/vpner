@@ -123,6 +123,22 @@ func (m *Manager) AddInterface(id string) error {
 	return m.writeVPNInterfaces(vpnInterfaces)
 }
 
+func (m *Manager) AddSS(id string, iface Interface) error {
+	vpnInterfaces, err := m.readVPNInterfaces()
+	if err != nil {
+		return err
+	}
+
+	if _, exists := vpnInterfaces.Interfaces[id]; exists {
+		return fmt.Errorf("interface %s already added", id)
+	}
+
+	vpnInterfaces.Interfaces[id] = iface
+	utils.LogF("Added interface %s", id)
+
+	return m.writeVPNInterfaces(vpnInterfaces)
+}
+
 func (m *Manager) DeleteInterface(id string) error {
 	vpnInterfaces, err := m.readVPNInterfaces()
 	if err != nil {

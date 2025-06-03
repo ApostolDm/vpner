@@ -15,7 +15,7 @@ const defaultRulesFile = "/opt/etc/vpner/vpner_unblock.yaml"
 type VPNRuleSet map[string][]string
 
 type VPNRulesConfig struct {
-	Shadowsocks VPNRuleSet `yaml:"Shadowsocks"`
+	Xray VPNRuleSet `yaml:"Xray"`
 	OpenVPN     VPNRuleSet `yaml:"OpenVPN"`
 	Wireguard   VPNRuleSet `yaml:"Wireguard"`
 	IKE         VPNRuleSet `yaml:"IKE"`
@@ -34,7 +34,7 @@ func (v *VPNRulesConfig) RuleMap() map[string]*VPNRuleSet {
 	}
 
 	return map[string]*VPNRuleSet{
-		"Shadowsocks": ensure(&v.Shadowsocks),
+		"Xray": ensure(&v.Xray),
 		"OpenVPN":     ensure(&v.OpenVPN),
 		"Wireguard":   ensure(&v.Wireguard),
 		"IKE":         ensure(&v.IKE),

@@ -27,10 +27,10 @@ const (
 	VpnerManager_InterfaceAdd_FullMethodName  = "/vpner.VpnerManager/InterfaceAdd"
 	VpnerManager_InterfaceDel_FullMethodName  = "/vpner.VpnerManager/InterfaceDel"
 	VpnerManager_DnsManage_FullMethodName     = "/vpner.VpnerManager/DnsManage"
-	VpnerManager_SSCreate_FullMethodName      = "/vpner.VpnerManager/SSCreate"
-	VpnerManager_SSDelete_FullMethodName      = "/vpner.VpnerManager/SSDelete"
-	VpnerManager_SSList_FullMethodName        = "/vpner.VpnerManager/SSList"
-	VpnerManager_SSManage_FullMethodName      = "/vpner.VpnerManager/SSManage"
+	VpnerManager_XrayCreate_FullMethodName    = "/vpner.VpnerManager/XrayCreate"
+	VpnerManager_XrayDelete_FullMethodName    = "/vpner.VpnerManager/XrayDelete"
+	VpnerManager_XrayList_FullMethodName      = "/vpner.VpnerManager/XrayList"
+	VpnerManager_XrayManage_FullMethodName    = "/vpner.VpnerManager/XrayManage"
 )
 
 // VpnerManagerClient is the client API for VpnerManager service.
@@ -48,11 +48,11 @@ type VpnerManagerClient interface {
 	InterfaceDel(ctx context.Context, in *InterfaceActionRequest, opts ...grpc.CallOption) (*GenericResponse, error)
 	// DNS management
 	DnsManage(ctx context.Context, in *ManageRequest, opts ...grpc.CallOption) (*GenericResponse, error)
-	// SS manager
-	SSCreate(ctx context.Context, in *SSInfo, opts ...grpc.CallOption) (*GenericResponse, error)
-	SSDelete(ctx context.Context, in *SSDeleteRequest, opts ...grpc.CallOption) (*GenericResponse, error)
-	SSList(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*SSListResponse, error)
-	SSManage(ctx context.Context, in *SSManageRequest, opts ...grpc.CallOption) (*GenericResponse, error)
+	// xray manager
+	XrayCreate(ctx context.Context, in *XrayCreateRequest, opts ...grpc.CallOption) (*GenericResponse, error)
+	XrayDelete(ctx context.Context, in *XrayRequest, opts ...grpc.CallOption) (*GenericResponse, error)
+	XrayList(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*XrayListResponse, error)
+	XrayManage(ctx context.Context, in *XrayManageRequest, opts ...grpc.CallOption) (*GenericResponse, error)
 }
 
 type vpnerManagerClient struct {
@@ -143,40 +143,40 @@ func (c *vpnerManagerClient) DnsManage(ctx context.Context, in *ManageRequest, o
 	return out, nil
 }
 
-func (c *vpnerManagerClient) SSCreate(ctx context.Context, in *SSInfo, opts ...grpc.CallOption) (*GenericResponse, error) {
+func (c *vpnerManagerClient) XrayCreate(ctx context.Context, in *XrayCreateRequest, opts ...grpc.CallOption) (*GenericResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GenericResponse)
-	err := c.cc.Invoke(ctx, VpnerManager_SSCreate_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, VpnerManager_XrayCreate_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *vpnerManagerClient) SSDelete(ctx context.Context, in *SSDeleteRequest, opts ...grpc.CallOption) (*GenericResponse, error) {
+func (c *vpnerManagerClient) XrayDelete(ctx context.Context, in *XrayRequest, opts ...grpc.CallOption) (*GenericResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GenericResponse)
-	err := c.cc.Invoke(ctx, VpnerManager_SSDelete_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, VpnerManager_XrayDelete_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *vpnerManagerClient) SSList(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*SSListResponse, error) {
+func (c *vpnerManagerClient) XrayList(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*XrayListResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(SSListResponse)
-	err := c.cc.Invoke(ctx, VpnerManager_SSList_FullMethodName, in, out, cOpts...)
+	out := new(XrayListResponse)
+	err := c.cc.Invoke(ctx, VpnerManager_XrayList_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *vpnerManagerClient) SSManage(ctx context.Context, in *SSManageRequest, opts ...grpc.CallOption) (*GenericResponse, error) {
+func (c *vpnerManagerClient) XrayManage(ctx context.Context, in *XrayManageRequest, opts ...grpc.CallOption) (*GenericResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GenericResponse)
-	err := c.cc.Invoke(ctx, VpnerManager_SSManage_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, VpnerManager_XrayManage_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -198,11 +198,11 @@ type VpnerManagerServer interface {
 	InterfaceDel(context.Context, *InterfaceActionRequest) (*GenericResponse, error)
 	// DNS management
 	DnsManage(context.Context, *ManageRequest) (*GenericResponse, error)
-	// SS manager
-	SSCreate(context.Context, *SSInfo) (*GenericResponse, error)
-	SSDelete(context.Context, *SSDeleteRequest) (*GenericResponse, error)
-	SSList(context.Context, *Empty) (*SSListResponse, error)
-	SSManage(context.Context, *SSManageRequest) (*GenericResponse, error)
+	// xray manager
+	XrayCreate(context.Context, *XrayCreateRequest) (*GenericResponse, error)
+	XrayDelete(context.Context, *XrayRequest) (*GenericResponse, error)
+	XrayList(context.Context, *Empty) (*XrayListResponse, error)
+	XrayManage(context.Context, *XrayManageRequest) (*GenericResponse, error)
 	mustEmbedUnimplementedVpnerManagerServer()
 }
 
@@ -237,17 +237,17 @@ func (UnimplementedVpnerManagerServer) InterfaceDel(context.Context, *InterfaceA
 func (UnimplementedVpnerManagerServer) DnsManage(context.Context, *ManageRequest) (*GenericResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DnsManage not implemented")
 }
-func (UnimplementedVpnerManagerServer) SSCreate(context.Context, *SSInfo) (*GenericResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SSCreate not implemented")
+func (UnimplementedVpnerManagerServer) XrayCreate(context.Context, *XrayCreateRequest) (*GenericResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method XrayCreate not implemented")
 }
-func (UnimplementedVpnerManagerServer) SSDelete(context.Context, *SSDeleteRequest) (*GenericResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SSDelete not implemented")
+func (UnimplementedVpnerManagerServer) XrayDelete(context.Context, *XrayRequest) (*GenericResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method XrayDelete not implemented")
 }
-func (UnimplementedVpnerManagerServer) SSList(context.Context, *Empty) (*SSListResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SSList not implemented")
+func (UnimplementedVpnerManagerServer) XrayList(context.Context, *Empty) (*XrayListResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method XrayList not implemented")
 }
-func (UnimplementedVpnerManagerServer) SSManage(context.Context, *SSManageRequest) (*GenericResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SSManage not implemented")
+func (UnimplementedVpnerManagerServer) XrayManage(context.Context, *XrayManageRequest) (*GenericResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method XrayManage not implemented")
 }
 func (UnimplementedVpnerManagerServer) mustEmbedUnimplementedVpnerManagerServer() {}
 func (UnimplementedVpnerManagerServer) testEmbeddedByValue()                      {}
@@ -414,74 +414,74 @@ func _VpnerManager_DnsManage_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
-func _VpnerManager_SSCreate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SSInfo)
+func _VpnerManager_XrayCreate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(XrayCreateRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(VpnerManagerServer).SSCreate(ctx, in)
+		return srv.(VpnerManagerServer).XrayCreate(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: VpnerManager_SSCreate_FullMethodName,
+		FullMethod: VpnerManager_XrayCreate_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(VpnerManagerServer).SSCreate(ctx, req.(*SSInfo))
+		return srv.(VpnerManagerServer).XrayCreate(ctx, req.(*XrayCreateRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _VpnerManager_SSDelete_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SSDeleteRequest)
+func _VpnerManager_XrayDelete_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(XrayRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(VpnerManagerServer).SSDelete(ctx, in)
+		return srv.(VpnerManagerServer).XrayDelete(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: VpnerManager_SSDelete_FullMethodName,
+		FullMethod: VpnerManager_XrayDelete_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(VpnerManagerServer).SSDelete(ctx, req.(*SSDeleteRequest))
+		return srv.(VpnerManagerServer).XrayDelete(ctx, req.(*XrayRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _VpnerManager_SSList_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _VpnerManager_XrayList_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(Empty)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(VpnerManagerServer).SSList(ctx, in)
+		return srv.(VpnerManagerServer).XrayList(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: VpnerManager_SSList_FullMethodName,
+		FullMethod: VpnerManager_XrayList_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(VpnerManagerServer).SSList(ctx, req.(*Empty))
+		return srv.(VpnerManagerServer).XrayList(ctx, req.(*Empty))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _VpnerManager_SSManage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SSManageRequest)
+func _VpnerManager_XrayManage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(XrayManageRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(VpnerManagerServer).SSManage(ctx, in)
+		return srv.(VpnerManagerServer).XrayManage(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: VpnerManager_SSManage_FullMethodName,
+		FullMethod: VpnerManager_XrayManage_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(VpnerManagerServer).SSManage(ctx, req.(*SSManageRequest))
+		return srv.(VpnerManagerServer).XrayManage(ctx, req.(*XrayManageRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -526,20 +526,20 @@ var VpnerManager_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _VpnerManager_DnsManage_Handler,
 		},
 		{
-			MethodName: "SSCreate",
-			Handler:    _VpnerManager_SSCreate_Handler,
+			MethodName: "XrayCreate",
+			Handler:    _VpnerManager_XrayCreate_Handler,
 		},
 		{
-			MethodName: "SSDelete",
-			Handler:    _VpnerManager_SSDelete_Handler,
+			MethodName: "XrayDelete",
+			Handler:    _VpnerManager_XrayDelete_Handler,
 		},
 		{
-			MethodName: "SSList",
-			Handler:    _VpnerManager_SSList_Handler,
+			MethodName: "XrayList",
+			Handler:    _VpnerManager_XrayList_Handler,
 		},
 		{
-			MethodName: "SSManage",
-			Handler:    _VpnerManager_SSManage_Handler,
+			MethodName: "XrayManage",
+			Handler:    _VpnerManager_XrayManage_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

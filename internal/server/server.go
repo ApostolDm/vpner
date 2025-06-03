@@ -16,13 +16,13 @@ import (
 
 type VpnerServer struct {
 	grpcpb.UnimplementedVpnerManagerServer
-	dns       *DNSService
-	ss        *SSService
-	unblock   *network.UnblockManager
-	resolver  *dohclient.Resolver
-	ifManager *interface_manager.Manager
-	ssManger  *network.SsManager
+	dns             *DNSService
+	unblock         *network.UnblockManager
+	resolver        *dohclient.Resolver
+	ifManager       *interface_manager.Manager
 	iptablesManager *network.IptablesManager
+	xrayManager     *network.XrayManager
+	xrayService     *XrayService
 }
 
 func (s *VpnerServer) DnsManage(ctx context.Context, req *grpcpb.ManageRequest) (*grpcpb.GenericResponse, error) {
@@ -79,7 +79,11 @@ func (s *VpnerServer) UnblockAdd(ctx context.Context, req *grpcpb.UnblockAddRequ
 		return errorGeneric(fmt.Sprintf("Invalid pattern: %v", err)), nil
 	}
 	vpnType, exists := s.ifManager.GetInterfaceTypeByNameFromVpner(req.ChainName)
-	if !exists {
+	isSS := s.xrayManager.IsXrayChain(req.ChainName)
+	if isSS {
+		vpnType = "Xray"
+	}
+	if !exists && !isSS {
 		return errorGeneric(fmt.Sprintf("Chain name '%s' does not exist", req.ChainName)), nil
 	}
 	allRules, err := s.unblock.GetAllRules()
@@ -186,7 +190,84 @@ func (s *VpnerServer) InterfaceDel(ctx context.Context, req *grpcpb.InterfaceAct
 	return successGeneric(fmt.Sprintf("Interface deleted successfully: %s", req.Id)), nil
 }
 
-func (s *VpnerServer) SSCreate(ctx context.Context, req *grpcpb.SSInfo) (*grpcpb.GenericResponse, error) {
+func (s *VpnerServer) XrayList(ctx context.Context, _ *grpcpb.Empty) (*grpcpb.XrayListResponse, error) {
+	xrayList, err := s.xrayManager.ListXrayInfo()
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to retrieve Xray list: %v", err)
+	}
+	if len(xrayList) == 0 {
+		return nil, status.Errorf(codes.Internal, "no Xray configurations found")
+	}
+	var xrayConfigs []*grpcpb.XrayInfo
+	for name, config := range xrayList {
+		is_running := s.xrayService.IsRunning(name)
+		xrayConfigs = append(xrayConfigs, &grpcpb.XrayInfo{
+			ChainName: name,
+			Host:      config.Host,
+			Port:      int32(config.Port),
+			AutoRun:   config.AutoRun,
+			Status:    is_running,
+			Type:      config.Type,
+		})
+	}
+	sort.Slice(xrayConfigs, func(i, j int) bool {
+		return xrayConfigs[i].ChainName < xrayConfigs[j].ChainName
+	},
+	)
+	return &grpcpb.XrayListResponse{List: xrayConfigs}, nil
+}
+
+func (s *VpnerServer) XrayManage(ctx context.Context, req *grpcpb.XrayManageRequest) (*grpcpb.GenericResponse, error) {
+	switch req.Act {
+	case grpcpb.ManageAction_START:
+		if err := s.xrayService.StartOne(req.ChainName); err != nil {
+			return errorGeneric(fmt.Sprintf("Failed to start Xray: %v", err)), nil
+		}
+		return successGeneric(fmt.Sprintf("Xray started successfully: %s", req.ChainName)), nil
+	case grpcpb.ManageAction_STOP:
+		if err := s.xrayService.StopOne(req.ChainName); err != nil {
+			return errorGeneric(fmt.Sprintf("Failed to stop Xray: %v", err)), nil
+		}
+		return successGeneric(fmt.Sprintf("Xray stopped successfully: %s", req.ChainName)), nil
+	case grpcpb.ManageAction_STATUS:
+		isRunning := s.xrayService.IsRunning(req.ChainName)
+		if isRunning {
+			return successGeneric(fmt.Sprintf("Xray is running: %s", req.ChainName)), nil
+		}
+		return errorGeneric(fmt.Sprintf("Xray is not running: %s", req.ChainName)), nil
+	default:
+		return errorGeneric("Unknown Xray management action"), nil
+	}
+}
+
+func (s *VpnerServer) XrayCreate(ctx context.Context, req *grpcpb.XrayCreateRequest) (*grpcpb.GenericResponse, error) {
+	name, err := s.xrayManager.CreateXray(req.Link, req.AutoRun); 
+	if err != nil {
+		return errorGeneric(fmt.Sprintf("Failed to create Xray: %v", err)), nil
+	}
+	return successGeneric(fmt.Sprintf("Xray created successfully: %s", name)), nil
+}
+
+func (s *VpnerServer) XrayDelete(ctx context.Context, req *grpcpb.XrayRequest) (*grpcpb.GenericResponse, error) {
+	if s.xrayService.IsRunning(req.ChainName) {
+		if err := s.xrayService.StopOne(req.ChainName); err != nil {
+			return errorGeneric(fmt.Sprintf("Failed to stop Xray: %v", err)), nil
+		}
+	}
+	if err := s.xrayManager.DeleteXray(req.ChainName); err != nil {
+		return errorGeneric(fmt.Sprintf("Failed to delete Xray: %v", err)), nil
+	}
+	var errors []string
+	if err := s.unblock.DelChain("Xray", req.ChainName); err != nil {
+		errors = append(errors, fmt.Sprintf("Failed to delete unblock chain: %v", err))
+	}
+	if len(errors) > 0 {
+		return errorGeneric(fmt.Sprintf("Errors occurred: %v", errors)), nil
+	}
+	return successGeneric(fmt.Sprintf("Xray deleted successfully: %s", req.ChainName)), nil
+}
+
+/*func (s *VpnerServer) SSCreate(ctx context.Context, req *grpcpb.SSInfo) (*grpcpb.GenericResponse, error) {
 	if err := s.ssManger.CreateSS(network.SSminConfig{
 		Host:       req.Host,
 		ServerPort: int(req.Port),
@@ -267,7 +348,7 @@ func (s *VpnerServer) SSManage(ctx context.Context, req *grpcpb.SSManageRequest)
 	default:
 		return errorGeneric("Unknown SS management action"), nil
 	}
-}
+}*/
 
 func returnIfStatus(status string) grpcpb.InterfaceInfo_State {
 	switch status {

@@ -3,7 +3,7 @@ package utils
 import "fmt"
 
 const (
-	defaultTag = "vpner-unblock"
+	defaultTag = "vpner"
 )
 
 func GetIpsetName(vpnType string, chainName string) (string, error) {

@@ -258,32 +258,32 @@ func (x *InterfaceInfo) GetAdded() bool {
 	return false
 }
 
-type SSInfo struct {
+type XrayInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Host          string                 `protobuf:"bytes,1,opt,name=host,proto3" json:"host,omitempty"`
-	Port          int32                  `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`
-	Password      string                 `protobuf:"bytes,3,opt,name=password,proto3" json:"password,omitempty"`
-	Method        string                 `protobuf:"bytes,4,opt,name=method,proto3" json:"method,omitempty"`
-	Mode          string                 `protobuf:"bytes,5,opt,name=mode,proto3" json:"mode,omitempty"`
+	ChainName     string                 `protobuf:"bytes,1,opt,name=chain_name,json=chainName,proto3" json:"chain_name,omitempty"`
+	Type          string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
+	Host          string                 `protobuf:"bytes,3,opt,name=host,proto3" json:"host,omitempty"`
+	Port          int32                  `protobuf:"varint,4,opt,name=port,proto3" json:"port,omitempty"`
+	Status        bool                   `protobuf:"varint,5,opt,name=status,proto3" json:"status,omitempty"`
 	AutoRun       bool                   `protobuf:"varint,6,opt,name=auto_run,json=autoRun,proto3" json:"auto_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *SSInfo) Reset() {
-	*x = SSInfo{}
+func (x *XrayInfo) Reset() {
+	*x = XrayInfo{}
 	mi := &file_structures_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *SSInfo) String() string {
+func (x *XrayInfo) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*SSInfo) ProtoMessage() {}
+func (*XrayInfo) ProtoMessage() {}
 
-func (x *SSInfo) ProtoReflect() protoreflect.Message {
+func (x *XrayInfo) ProtoReflect() protoreflect.Message {
 	mi := &file_structures_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -295,47 +295,47 @@ func (x *SSInfo) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use SSInfo.ProtoReflect.Descriptor instead.
-func (*SSInfo) Descriptor() ([]byte, []int) {
+// Deprecated: Use XrayInfo.ProtoReflect.Descriptor instead.
+func (*XrayInfo) Descriptor() ([]byte, []int) {
 	return file_structures_proto_rawDescGZIP(), []int{2}
 }
 
-func (x *SSInfo) GetHost() string {
+func (x *XrayInfo) GetChainName() string {
+	if x != nil {
+		return x.ChainName
+	}
+	return ""
+}
+
+func (x *XrayInfo) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *XrayInfo) GetHost() string {
 	if x != nil {
 		return x.Host
 	}
 	return ""
 }
 
-func (x *SSInfo) GetPort() int32 {
+func (x *XrayInfo) GetPort() int32 {
 	if x != nil {
 		return x.Port
 	}
 	return 0
 }
 
-func (x *SSInfo) GetPassword() string {
+func (x *XrayInfo) GetStatus() bool {
 	if x != nil {
-		return x.Password
+		return x.Status
 	}
-	return ""
+	return false
 }
 
-func (x *SSInfo) GetMethod() string {
-	if x != nil {
-		return x.Method
-	}
-	return ""
-}
-
-func (x *SSInfo) GetMode() string {
-	if x != nil {
-		return x.Mode
-	}
-	return ""
-}
-
-func (x *SSInfo) GetAutoRun() bool {
+func (x *XrayInfo) GetAutoRun() bool {
 	if x != nil {
 		return x.AutoRun
 	}
@@ -362,13 +362,14 @@ const file_structures_proto_rawDesc = "" +
 	"\x05State\x12\x06\n" +
 	"\x02UP\x10\x00\x12\b\n" +
 	"\x04DOWN\x10\x01\x12\v\n" +
-	"\aUNKNOWN\x10\x02\"\x93\x01\n" +
-	"\x06SSInfo\x12\x12\n" +
-	"\x04host\x18\x01 \x01(\tR\x04host\x12\x12\n" +
-	"\x04port\x18\x02 \x01(\x05R\x04port\x12\x1a\n" +
-	"\bpassword\x18\x03 \x01(\tR\bpassword\x12\x16\n" +
-	"\x06method\x18\x04 \x01(\tR\x06method\x12\x12\n" +
-	"\x04mode\x18\x05 \x01(\tR\x04mode\x12\x19\n" +
+	"\aUNKNOWN\x10\x02\"\x98\x01\n" +
+	"\bXrayInfo\x12\x1d\n" +
+	"\n" +
+	"chain_name\x18\x01 \x01(\tR\tchainName\x12\x12\n" +
+	"\x04type\x18\x02 \x01(\tR\x04type\x12\x12\n" +
+	"\x04host\x18\x03 \x01(\tR\x04host\x12\x12\n" +
+	"\x04port\x18\x04 \x01(\x05R\x04port\x12\x16\n" +
+	"\x06status\x18\x05 \x01(\bR\x06status\x12\x19\n" +
 	"\bauto_run\x18\x06 \x01(\bR\aautoRun*<\n" +
 	"\fManageAction\x12\t\n" +
 	"\x05START\x10\x00\x12\b\n" +
@@ -396,7 +397,7 @@ var file_structures_proto_goTypes = []any{
 	(InterfaceInfo_State)(0), // 1: structures.InterfaceInfo.State
 	(*UnblockInfo)(nil),      // 2: structures.UnblockInfo
 	(*InterfaceInfo)(nil),    // 3: structures.InterfaceInfo
-	(*SSInfo)(nil),           // 4: structures.SSInfo
+	(*XrayInfo)(nil),         // 4: structures.XrayInfo
 }
 var file_structures_proto_depIdxs = []int32{
 	1, // 0: structures.InterfaceInfo.status:type_name -> structures.InterfaceInfo.State
