@@ -32,7 +32,8 @@ type DNSServer struct {
 	unblockManager *network.UnblockManager
 	customRules    []compiledResolverRule
 	resolver       *dohclient.Resolver
-	dnsServer      *dns.Server
+	udpServer      *dns.Server
+	tcpServer      *dns.Server
 	notifyStarted  func()
 }
 
@@ -64,9 +65,10 @@ func (s *DNSServer) Run(ctx context.Context) error {
 	dns.HandleFunc(".", s.handleDNSRequest)
 
 	addr := ":" + strconv.Itoa(s.config.Port)
-	s.dnsServer = &dns.Server{Addr: addr, Net: "udp"}
+	s.udpServer = &dns.Server{Addr: addr, Net: "udp"}
+	s.tcpServer = &dns.Server{Addr: addr, Net: "tcp"}
 	if s.notifyStarted != nil {
-		s.dnsServer.NotifyStartedFunc = s.notifyStarted
+		s.udpServer.NotifyStartedFunc = s.notifyStarted
 	}
 
 	go func() {
@@ -74,14 +76,21 @@ func (s *DNSServer) Run(ctx context.Context) error {
 		if s.config.Verbose {
 			log.Println("DNS server shutdown initiated")
 		}
-		_ = s.dnsServer.Shutdown()
+		_ = s.udpServer.Shutdown()
+		_ = s.tcpServer.Shutdown()
 	}()
 
 	if s.config.Verbose {
 		log.Printf("Starting DNS server on port %d...", s.config.Port)
 	}
 
-	return s.dnsServer.ListenAndServe()
+	go func() {
+		if err := s.tcpServer.ListenAndServe(); err != nil {
+			log.Printf("TCP DNS server exited: %v", err)
+		}
+	}()
+
+	return s.udpServer.ListenAndServe()
 }
 
 func (s *DNSServer) SetNotifyStartedFunc(fn func()) {
