@@ -1,5 +1,7 @@
 # vpner
 
+[Читать на русском](README.ru.md)
+
 vpner is a compact networking stack for Entware/OpenWrt-style routers. It combines:
 
 - an opinionated gRPC daemon (`vpnerd`) that controls iptables/ipset rules, DNS filtering, and Xray chains;
@@ -67,6 +69,18 @@ The whole system lives under `/opt/etc/vpner` by default and is designed to be d
    ```sh
    /opt/etc/init.d/S95vpnerd start   # stop|restart|status
    ```
+
+### Keenetic DNS override
+
+If you install vpner on Keenetic firmware you must force the router to push all DNS traffic through Entware. Right after installing the package run the following commands in the Entware shell:
+
+```sh
+opkg dns-override          # switch Keenetic DNS to /opt
+system configuration save  # persist the change
+reboot                     # apply it after a restart
+```
+
+After reboot every LAN client will use the DNS server shipped with `vpnerd`, and the bundled ndm hook (`/opt/etc/ndm/netfilter.d/50-vpner`) will automatically call `/opt/etc/vpner/vpshookcli --unix /tmp/vpner.sock` whenever Keenetic rebuilds the `nat` table.
 
 ### Option 2 – Build manually (vpnerd + vpnerctl)
 
