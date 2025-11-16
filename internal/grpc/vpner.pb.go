@@ -788,7 +788,7 @@ const file_vpner_proto_rawDesc = "" +
 	"chain_name\x18\x01 \x01(\tR\tchainName\x12\x19\n" +
 	"\bauto_run\x18\x02 \x01(\bR\aautoRun\"<\n" +
 	"\x10XrayListResponse\x12(\n" +
-	"\x04list\x18\x01 \x03(\v2\x14.structures.XrayInfoR\x04list2\xbc\x06\n" +
+	"\x04list\x18\x01 \x03(\v2\x14.structures.XrayInfoR\x04list2\xf1\x06\n" +
 	"\fVpnerManager\x127\n" +
 	"\vUnblockList\x12\f.vpner.Empty\x1a\x1a.vpner.UnblockListResponse\x12>\n" +
 	"\n" +
@@ -807,7 +807,8 @@ const file_vpner_proto_rawDesc = "" +
 	"\bXrayList\x12\f.vpner.Empty\x1a\x17.vpner.XrayListResponse\x12>\n" +
 	"\n" +
 	"XrayManage\x12\x18.vpner.XrayManageRequest\x1a\x16.vpner.GenericResponse\x12C\n" +
-	"\x0eXraySetAutorun\x12\x19.vpner.XrayAutoRunRequest\x1a\x16.vpner.GenericResponseB,Z*github.com/ApostolDmitry/vpner/proto;protob\x06proto3"
+	"\x0eXraySetAutorun\x12\x19.vpner.XrayAutoRunRequest\x1a\x16.vpner.GenericResponse\x123\n" +
+	"\vHookRestore\x12\f.vpner.Empty\x1a\x16.vpner.GenericResponseB,Z*github.com/ApostolDmitry/vpner/proto;protob\x06proto3"
 
 var (
 	file_vpner_proto_rawDescOnce sync.Once
@@ -864,21 +865,23 @@ var file_vpner_proto_depIdxs = []int32{
 	0,  // 17: vpner.VpnerManager.XrayList:input_type -> vpner.Empty
 	12, // 18: vpner.VpnerManager.XrayManage:input_type -> vpner.XrayManageRequest
 	13, // 19: vpner.VpnerManager.XraySetAutorun:input_type -> vpner.XrayAutoRunRequest
-	4,  // 20: vpner.VpnerManager.UnblockList:output_type -> vpner.UnblockListResponse
-	1,  // 21: vpner.VpnerManager.UnblockAdd:output_type -> vpner.GenericResponse
-	1,  // 22: vpner.VpnerManager.UnblockDel:output_type -> vpner.GenericResponse
-	7,  // 23: vpner.VpnerManager.InterfaceList:output_type -> vpner.InterfaceListResponse
-	7,  // 24: vpner.VpnerManager.InterfaceScan:output_type -> vpner.InterfaceListResponse
-	1,  // 25: vpner.VpnerManager.InterfaceAdd:output_type -> vpner.GenericResponse
-	1,  // 26: vpner.VpnerManager.InterfaceDel:output_type -> vpner.GenericResponse
-	1,  // 27: vpner.VpnerManager.DnsManage:output_type -> vpner.GenericResponse
-	1,  // 28: vpner.VpnerManager.XrayCreate:output_type -> vpner.GenericResponse
-	1,  // 29: vpner.VpnerManager.XrayDelete:output_type -> vpner.GenericResponse
-	14, // 30: vpner.VpnerManager.XrayList:output_type -> vpner.XrayListResponse
-	1,  // 31: vpner.VpnerManager.XrayManage:output_type -> vpner.GenericResponse
-	1,  // 32: vpner.VpnerManager.XraySetAutorun:output_type -> vpner.GenericResponse
-	20, // [20:33] is the sub-list for method output_type
-	7,  // [7:20] is the sub-list for method input_type
+	0,  // 20: vpner.VpnerManager.HookRestore:input_type -> vpner.Empty
+	4,  // 21: vpner.VpnerManager.UnblockList:output_type -> vpner.UnblockListResponse
+	1,  // 22: vpner.VpnerManager.UnblockAdd:output_type -> vpner.GenericResponse
+	1,  // 23: vpner.VpnerManager.UnblockDel:output_type -> vpner.GenericResponse
+	7,  // 24: vpner.VpnerManager.InterfaceList:output_type -> vpner.InterfaceListResponse
+	7,  // 25: vpner.VpnerManager.InterfaceScan:output_type -> vpner.InterfaceListResponse
+	1,  // 26: vpner.VpnerManager.InterfaceAdd:output_type -> vpner.GenericResponse
+	1,  // 27: vpner.VpnerManager.InterfaceDel:output_type -> vpner.GenericResponse
+	1,  // 28: vpner.VpnerManager.DnsManage:output_type -> vpner.GenericResponse
+	1,  // 29: vpner.VpnerManager.XrayCreate:output_type -> vpner.GenericResponse
+	1,  // 30: vpner.VpnerManager.XrayDelete:output_type -> vpner.GenericResponse
+	14, // 31: vpner.VpnerManager.XrayList:output_type -> vpner.XrayListResponse
+	1,  // 32: vpner.VpnerManager.XrayManage:output_type -> vpner.GenericResponse
+	1,  // 33: vpner.VpnerManager.XraySetAutorun:output_type -> vpner.GenericResponse
+	1,  // 34: vpner.VpnerManager.HookRestore:output_type -> vpner.GenericResponse
+	21, // [21:35] is the sub-list for method output_type
+	7,  // [7:21] is the sub-list for method input_type
 	7,  // [7:7] is the sub-list for extension type_name
 	7,  // [7:7] is the sub-list for extension extendee
 	0,  // [0:7] is the sub-list for field type_name

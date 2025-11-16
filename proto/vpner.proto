@@ -25,6 +25,7 @@ service VpnerManager {
   rpc XrayList (Empty) returns (XrayListResponse);
   rpc XrayManage(XrayManageRequest) returns (GenericResponse);
   rpc XraySetAutorun(XrayAutoRunRequest) returns (GenericResponse);
+  rpc HookRestore(Empty) returns (GenericResponse);
 }
 
 

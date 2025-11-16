@@ -15,6 +15,8 @@ DEFAULT_OPKG_ARCH=${DEFAULT_OPKG_ARCH:-}
 TAR_BIN=${TAR_BIN:-tar}
 TAR_FORMAT=${TAR_FORMAT:-ustar}
 DEFAULT_BIN_OUT=""
+HOOK_SCRIPT_NAME=${HOOK_SCRIPT_NAME:-50-vpner}
+DEFAULT_HOOK_OUT=""
 
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
@@ -39,6 +41,16 @@ if [ -x "$INIT" ]; then
 fi
 exit 0
 POSTINST
+}
+
+render_ndm_hook() {
+  cat <<'HOOK'
+#!/bin/sh
+if [ "${type}" = 'iptables' ] && [ "${table}" = 'nat' ]; then
+  __INSTALL_PREFIX__/etc/vpner/vpnerhookcli --unix /tmp/vpner.sock >/dev/null 2>&1 &
+fi
+exit 0
+HOOK
 }
 
 render_init_script() {
@@ -143,11 +155,13 @@ build_arch() {
   local control_dir="$work/opkg/CONTROL"
   local pkg_file="$BUILD_DIR/${PKG_NAME}_${PKG_VERSION}_${pkgarch}.ipk"
   local bin_path="$bin_dir/$PKG_NAME"
+  local hook_bin="$bin_dir/vpnerhookcli"
   local conf_dir="$data_dir$INSTALL_PREFIX/etc/vpner"
   local init_dir="$data_dir$INSTALL_PREFIX/etc/init.d"
+  local ndm_dir="$data_dir$INSTALL_PREFIX/etc/ndm/netfilter.d"
 
   cleanup_dir "$work"
-  mkdir -p "$bin_dir" "$data_dir" "$control_dir" "$conf_dir" "$init_dir" "$work/opkg"
+  mkdir -p "$bin_dir" "$data_dir" "$control_dir" "$conf_dir" "$init_dir" "$ndm_dir" "$work/opkg"
 
   local gomodcache gocache gopath
   gomodcache=$(mktemp -d)
@@ -173,7 +187,23 @@ build_arch() {
   cp "$bin_path" "$ROOT_DIR/${PKG_NAME}-${goarch}"
   chmod +x "$ROOT_DIR/${PKG_NAME}-${goarch}"
 
+  GOOS=$GOOS GOARCH=$goarch GOMODCACHE=$gomodcache GOCACHE=$gocache GOPATH=$gopath \
+    go build -ldflags="-s -w" -o "$hook_bin" ./cmd/vpnerhookcli
+  if command -v upx >/dev/null 2>&1; then
+    log "Compressing hook binary with upx ($UPX_ARGS)"
+    upx $UPX_ARGS "$hook_bin" >/dev/null || true
+  fi
+
+  if [[ -z $DEFAULT_HOOK_OUT ]]; then
+    cp "$hook_bin" "$ROOT_DIR/vpnerhookcli"
+    chmod +x "$ROOT_DIR/vpnerhookcli"
+    DEFAULT_HOOK_OUT=1
+  fi
+  cp "$hook_bin" "$ROOT_DIR/vpnerhookcli-${goarch}"
+  chmod +x "$ROOT_DIR/vpnerhookcli-${goarch}"
+
   install -m755 "$bin_path" "$conf_dir/vpnerd"
+  install -m755 "$hook_bin" "$conf_dir/vpnerhookcli"
   install -m644 "$ROOT_DIR/vpner.yaml" "$conf_dir/vpner.yaml.example"
   mkdir -p "$data_dir$INSTALL_PREFIX/var/run"
 
@@ -181,6 +211,11 @@ build_arch() {
   render_init_script > "$init_tmp"
   apply_placeholders "$init_tmp"
   chmod 755 "$init_tmp"
+
+  local hook_tmp="$ndm_dir/$HOOK_SCRIPT_NAME"
+  render_ndm_hook > "$hook_tmp"
+  apply_placeholders "$hook_tmp"
+  chmod 755 "$hook_tmp"
 
   render_postinst > "$control_dir/postinst"
   apply_placeholders "$control_dir/postinst"

@@ -58,10 +58,11 @@ The whole system lives under `/opt/etc/vpner` by default and is designed to be d
    ```
    Dependencies (`xray-core`, `ipset`, `iptables`, `start-stop-daemon`) will be pulled automatically.
 3. Files are installed under `/opt/etc/vpner/`:
-   - `/opt/etc/vpner/vpnerd` – the daemon binary.
-   - `/opt/etc/vpner/vpner.yaml` – created from `.example` on first install.
-   - `/opt/etc/vpner/vpner_unblock.yaml` – created lazily by the daemon.
-   - `/opt/etc/init.d/S95vpnerd` – init script.
+- `/opt/etc/vpner/vpnerd` – the daemon binary.
+- `/opt/etc/vpner/vpner.yaml` – created from `.example` on first install.
+- `/opt/etc/vpner/vpner_unblock.yaml` – created lazily by the daemon.
+- `/opt/etc/init.d/S95vpnerd` – init script.
+- `/opt/etc/ndm/netfilter.d/50-vpner` – Keenetic hook that replays routing whenever the NAT table is rebuilt (it invokes `vpshookcli`).
 4. Control the service via the init script:
    ```sh
    /opt/etc/init.d/S95vpnerd start   # stop|restart|status
@@ -197,6 +198,15 @@ Pattern validation matches `vpnerctl unblock` behavior (`*` at start/end only); 
 | `vpnerctl xray start|stop|status <chain>` | Control chains manually. |
 | `vpnerctl xray delete <chain>` | Remove config and related unblock chain. |
 | `vpnerctl xray autorun <chain> --enable|--disable` | Toggle autorun on existing configs. |
+| `vpnerctl hook restore` | Reapply iptables/ipset routing for all running VPN hooks (useful for Keenetic ndm hooks). |
+
+### Router hooks (`vpshookcli`)
+
+The package installs `/opt/etc/vpner/vpshookcli` – a tiny binary intended for automation scripts. It uses the same config resolution as `vpnerctl` (defaults to `/tmp/vpner.sock` / `:50051`). Running it triggers `HookRestore`, which re-applies routing for every running chain.
+
+The opkg package already drops `/opt/etc/ndm/netfilter.d/50-vpner`, so Keenetic automatically runs `vpshookcli` whenever the firewall (iptables nat table) is rebuilt. OpenWrt/other systems can call the same binary from cron or custom rc scripts.
+
+Every time Keenetic rebuilds the firewall, the hook replays vpner routing instantly. OpenWrt users can wire the same binary into `/etc/rc.local` or cron.
 
 All commands return friendly messages; errors propagate as `GenericResponse_Error` with context.
 
@@ -218,7 +228,8 @@ All commands return friendly messages; errors propagate as `GenericResponse_Erro
 `.github/workflows/release.yml` runs on tagged pushes (`v*`) or manual dispatch. It:
 1. Builds `.ipk` packages via `make.sh` (using `ARCH_LIST` defined in the workflow).
 2. Builds `vpnerctl` binaries for Linux amd64/arm64, macOS arm64, and Windows amd64.
-3. Uploads artifacts to the workflow run and attaches them to the GitHub Release corresponding to the tag.
+3. Builds `vpshookcli` binaries for every router architecture in `ARCH_LIST`.
+4. Uploads artifacts to the workflow run and attaches them to the GitHub Release corresponding to the tag.
 
 To publish a release:
 ```sh

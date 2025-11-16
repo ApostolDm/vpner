@@ -79,6 +79,14 @@ func (s *VpnerServer) XraySetAutorun(ctx context.Context, req *grpcpb.XrayAutoRu
 	return successGeneric(fmt.Sprintf("Xray autorun %s: %s", state, req.ChainName)), nil
 }
 
+func (s *VpnerServer) HookRestore(ctx context.Context, _ *grpcpb.Empty) (*grpcpb.GenericResponse, error) {
+	if s.xrayRouter != nil {
+		s.xrayRouter.ResetState()
+	}
+	s.RestoreXrayRouting()
+	return successGeneric("Routing restore triggered"), nil
+}
+
 func (s *VpnerServer) XrayCreate(ctx context.Context, req *grpcpb.XrayCreateRequest) (*grpcpb.GenericResponse, error) {
 	name, err := s.xrayManager.CreateXray(req.Link, req.AutoRun)
 	if err != nil {

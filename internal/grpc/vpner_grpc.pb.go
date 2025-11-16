@@ -32,6 +32,7 @@ const (
 	VpnerManager_XrayList_FullMethodName       = "/vpner.VpnerManager/XrayList"
 	VpnerManager_XrayManage_FullMethodName     = "/vpner.VpnerManager/XrayManage"
 	VpnerManager_XraySetAutorun_FullMethodName = "/vpner.VpnerManager/XraySetAutorun"
+	VpnerManager_HookRestore_FullMethodName    = "/vpner.VpnerManager/HookRestore"
 )
 
 // VpnerManagerClient is the client API for VpnerManager service.
@@ -55,6 +56,7 @@ type VpnerManagerClient interface {
 	XrayList(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*XrayListResponse, error)
 	XrayManage(ctx context.Context, in *XrayManageRequest, opts ...grpc.CallOption) (*GenericResponse, error)
 	XraySetAutorun(ctx context.Context, in *XrayAutoRunRequest, opts ...grpc.CallOption) (*GenericResponse, error)
+	HookRestore(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*GenericResponse, error)
 }
 
 type vpnerManagerClient struct {
@@ -195,6 +197,16 @@ func (c *vpnerManagerClient) XraySetAutorun(ctx context.Context, in *XrayAutoRun
 	return out, nil
 }
 
+func (c *vpnerManagerClient) HookRestore(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*GenericResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GenericResponse)
+	err := c.cc.Invoke(ctx, VpnerManager_HookRestore_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // VpnerManagerServer is the server API for VpnerManager service.
 // All implementations must embed UnimplementedVpnerManagerServer
 // for forward compatibility.
@@ -216,6 +228,7 @@ type VpnerManagerServer interface {
 	XrayList(context.Context, *Empty) (*XrayListResponse, error)
 	XrayManage(context.Context, *XrayManageRequest) (*GenericResponse, error)
 	XraySetAutorun(context.Context, *XrayAutoRunRequest) (*GenericResponse, error)
+	HookRestore(context.Context, *Empty) (*GenericResponse, error)
 	mustEmbedUnimplementedVpnerManagerServer()
 }
 
@@ -264,6 +277,9 @@ func (UnimplementedVpnerManagerServer) XrayManage(context.Context, *XrayManageRe
 }
 func (UnimplementedVpnerManagerServer) XraySetAutorun(context.Context, *XrayAutoRunRequest) (*GenericResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method XraySetAutorun not implemented")
+}
+func (UnimplementedVpnerManagerServer) HookRestore(context.Context, *Empty) (*GenericResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method HookRestore not implemented")
 }
 func (UnimplementedVpnerManagerServer) mustEmbedUnimplementedVpnerManagerServer() {}
 func (UnimplementedVpnerManagerServer) testEmbeddedByValue()                      {}
@@ -520,6 +536,24 @@ func _VpnerManager_XraySetAutorun_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _VpnerManager_HookRestore_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VpnerManagerServer).HookRestore(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VpnerManager_HookRestore_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VpnerManagerServer).HookRestore(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // VpnerManager_ServiceDesc is the grpc.ServiceDesc for VpnerManager service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -578,6 +612,10 @@ var VpnerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "XraySetAutorun",
 			Handler:    _VpnerManager_XraySetAutorun_Handler,
+		},
+		{
+			MethodName: "HookRestore",
+			Handler:    _VpnerManager_HookRestore_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

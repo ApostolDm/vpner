@@ -41,14 +41,12 @@ func (r *XrayRouter) Apply(chain string, info network.XrayInfoDetails) error {
 	if err := network.EnsureIPSet(ipsetName, "hash:net", &network.Params{Timeout: network.DefaultIPSetTimeout}); err != nil {
 		return fmt.Errorf("ensure ipset %s: %w", ipsetName, err)
 	}
-
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if r.applied[chain] {
 		return nil
 	}
-
 	if err := r.iptables.AddRules(network.Xray, ipsetName, info.InboundPort, r.lanIface, ""); err != nil {
 		return err
 	}
@@ -103,5 +101,20 @@ func (r *XrayRouter) Shutdown() {
 			_ = r.iptables.RemoveRules(ipsetName)
 		}
 		delete(r.applied, name)
+	}
+}
+
+func (r *XrayRouter) ResetState() {
+	if r == nil || r.iptables == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for chain := range r.applied {
+		ipsetName, err := network.IpsetName("Xray", chain)
+		if err == nil {
+			_ = r.iptables.RemoveRules(ipsetName)
+		}
+		delete(r.applied, chain)
 	}
 }
