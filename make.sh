@@ -69,7 +69,7 @@ start() {
 
 stop() {
   if is_running; then
-    kill "$(cat "$PIDFILE")" 2>/dev/null || true
+    kill -15 "$(cat "$PIDFILE")" 2>/dev/null || true
     sleep 1
   fi
   rm -f "$PIDFILE"
