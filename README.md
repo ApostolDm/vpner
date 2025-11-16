@@ -97,9 +97,13 @@ Key environment variables:
 | `GOOS` | Target OS (shared by all arches). | `linux` |
 | `INSTALL_PREFIX` | Where files land inside the package. | `/opt` |
 | `PKG_VERSION` | Package version string. | `git describe` |
-| `OPKG_DEPENDS` | Dependencies declared in `control`. | `"xray-core, ipset, iptables, start-stop-daemon"` |
+| `OPKG_DEPENDS` | Dependencies declared in `control`. | `"xray-core, ipset, iptables"` |
 | `INIT_NAME` | Name of init script under `/opt/etc/init.d`. | `S95vpnerd` |
 | `UPX_ARGS` | Arguments passed to `upx`. | `--best` |
+| `DEFAULT_OPKG_ARCH` | Default opkg architecture if spec does not include `:arch`. | *(empty)* |
+| `TAR_FORMAT` | Tar format used when creating `control.tar.gz`, `data.tar.gz`, and the final `.ipk`. Use `ustar` (default) to avoid Pax headers on macOS. | `ustar` |
+
+Tip: run `opkg print-architecture` on the router to see the exact strings (e.g. `aarch64_cortex-a53`). Either set per-entry overrides (`ARCH_LIST="arm64:aarch64_cortex-a53"`) or export `DEFAULT_OPKG_ARCH=aarch64_cortex-a53` before invoking `make.sh`.
 
 ---
 

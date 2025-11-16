@@ -8,9 +8,12 @@ PKG_VERSION=${PKG_VERSION:-$(git describe --tags --always --dirty 2>/dev/null ||
 GOOS=${GOOS:-linux}
 ARCH_LIST=${ARCH_LIST:-arm64}
 INSTALL_PREFIX=${INSTALL_PREFIX:-/opt}
-OPKG_DEPENDS=${OPKG_DEPENDS:-"xray-core, ipset, iptables, start-stop-daemon"}
+OPKG_DEPENDS=${OPKG_DEPENDS:-"xray-core, ipset, iptables"}
 INIT_NAME=${INIT_NAME:-S95vpnerd}
 UPX_ARGS=${UPX_ARGS:---best}
+DEFAULT_OPKG_ARCH=${DEFAULT_OPKG_ARCH:-}
+TAR_BIN=${TAR_BIN:-tar}
+TAR_FORMAT=${TAR_FORMAT:-ustar}
 DEFAULT_BIN_OUT=""
 
 rm -rf "$BUILD_DIR"
@@ -41,41 +44,62 @@ POSTINST
 render_init_script() {
   cat <<'INIT'
 #!/bin/sh
-VP_ROOT="__INSTALL_PREFIX__/etc/vpner"
-BIN="$VP_ROOT/vpnerd"
-CFG="$VP_ROOT/vpner.yaml"
-PID="__INSTALL_PREFIX__/var/run/vpnerd.pid"
-SSD="${SSD:-__INSTALL_PREFIX__/bin/start-stop-daemon}"
+
+CMD=/opt/etc/vpner/vpnerd
+CFG=/opt/etc/vpner/vpner.yaml
+PIDFILE=/opt/var/run/vpnerd.pid
+LOGFILE=/opt/var/log/vpnerd.log
+ARGS="--config $CFG"
+PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+is_running() {
+  [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null
+}
 
 start() {
-  if [ ! -x "$BIN" ]; then
-    echo "vpnerd binary not found at $BIN" >&2
-    exit 1
+  if is_running; then
+    echo "vpnerd already running"
+    return 0
   fi
-  if [ ! -f "$CFG" ] && [ -f "$CFG.example" ]; then
-    cp "$CFG.example" "$CFG"
-  fi
-  mkdir -p "$(dirname "$PID")"
-  "$SSD" -S -q -b -m -p "$PID" --exec "$BIN" -- --config "$CFG"
+  mkdir -p /opt/var/run /opt/var/log
+  "$CMD" $ARGS >>"$LOGFILE" 2>&1 &
+  echo $! > "$PIDFILE"
+  echo "vpnerd started"
 }
 
 stop() {
-  "$SSD" -K -q -p "$PID" >/dev/null 2>&1 || true
-  rm -f "$PID"
+  if is_running; then
+    kill "$(cat "$PIDFILE")" 2>/dev/null || true
+    sleep 1
+  fi
+  rm -f "$PIDFILE"
+  echo "vpnerd stopped"
+}
+
+status() {
+  if is_running; then
+    echo "vpnerd is running"
+    return 0
+  fi
+  echo "vpnerd is stopped"
+  return 1
 }
 
 case "$1" in
-  start) start ;;
-  stop) stop ;;
-  restart) stop; sleep 1; start ;;
+  start)
+    start
+    ;;
+  stop)
+    stop
+    ;;
+  restart)
+    stop
+    sleep 1
+    start
+    ;;
   status)
-    if "$SSD" -T -q -p "$PID"; then
-      echo "vpnerd is running"
-      exit 0
-    else
-      echo "vpnerd is stopped"
-      exit 1
-    fi
+    status
+    exit $?
     ;;
   *)
     echo "Usage: $0 {start|stop|restart|status}" >&2
@@ -106,7 +130,11 @@ build_arch() {
   local goarch=${spec%%:*}
   local pkgarch=${spec##*:}
   if [[ $spec != *:* ]]; then
-    pkgarch=$goarch
+    if [[ -n $DEFAULT_OPKG_ARCH ]]; then
+      pkgarch=$DEFAULT_OPKG_ARCH
+    else
+      pkgarch=$goarch
+    fi
   fi
 
   local work="$BUILD_DIR/$pkgarch"
@@ -171,10 +199,10 @@ CONTROL
 
   log "Creating opkg archive $pkg_file"
   ( cd "$work/opkg" && \
-    tar czf control.tar.gz -C "$control_dir" . && \
-    tar czf data.tar.gz -C "$data_dir" . && \
-    printf '2.0' > debian-binary && \
-    tar cf "$pkg_file" control.tar.gz data.tar.gz debian-binary && \
+    "$TAR_BIN" --format="$TAR_FORMAT" -czf control.tar.gz -C "$control_dir" . && \
+    "$TAR_BIN" --format="$TAR_FORMAT" -czf data.tar.gz -C "$data_dir" . && \
+    printf '2.0\n' > debian-binary && \
+    "$TAR_BIN" --format="$TAR_FORMAT" -czf "$pkg_file" control.tar.gz data.tar.gz debian-binary && \
     rm -f control.tar.gz data.tar.gz debian-binary )
 
   cleanup_dir "$gomodcache"
@@ -186,3 +214,4 @@ CONTROL
 for spec in $ARCH_LIST; do
   build_arch "$spec"
 done
+patch placeholder
