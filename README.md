@@ -134,7 +134,7 @@ dnsServer:
   running: true
   custom-resolve:
     "1.1.1.1:53":
-      - "*.discord.media"
+      - "*.example.internal"
 
 doh:
   servers:
