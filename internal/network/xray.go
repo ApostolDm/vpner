@@ -108,6 +108,9 @@ func (x *XrayManager) parseVLESS(link string) (map[string]string, error) {
 		"allowInsecure": q.Get("allowInsecure"),
 		"flow":          q.Get("flow"),
 		"tag":           q.Get("tag"),
+		"pbk":           q.Get("pbk"),
+		"sid":           q.Get("sid"),
+		"spx":           q.Get("spx"),
 	}, nil
 }
 
@@ -652,7 +655,8 @@ func generateVLESSConfig(cfg map[string]string, port int) *xrayFile {
 	}
 	if cfg["security"] != "" {
 		stream["security"] = cfg["security"]
-		if cfg["security"] == "tls" {
+		switch cfg["security"] {
+		case "tls":
 			tlsSettings := map[string]interface{}{}
 			if cfg["sni"] != "" {
 				tlsSettings["serverName"] = cfg["sni"]
@@ -672,6 +676,28 @@ func generateVLESSConfig(cfg map[string]string, port int) *xrayFile {
 			}
 			if len(tlsSettings) > 0 {
 				stream["tlsSettings"] = tlsSettings
+			}
+		case "reality":
+			realitySettings := map[string]interface{}{}
+			if cfg["sni"] != "" {
+				realitySettings["serverName"] = cfg["sni"]
+			}
+			if cfg["fingerprint"] != "" {
+				realitySettings["fingerprint"] = cfg["fingerprint"]
+			}
+			if cfg["pbk"] != "" {
+				realitySettings["publicKey"] = cfg["pbk"]
+			}
+			if cfg["sid"] != "" {
+				realitySettings["shortId"] = cfg["sid"]
+			}
+			spiderX := cfg["spx"]
+			if spiderX == "" {
+				spiderX = "/"
+			}
+			realitySettings["spiderX"] = spiderX
+			if len(realitySettings) > 0 {
+				stream["realitySettings"] = realitySettings
 			}
 		}
 	}
