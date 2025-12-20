@@ -39,7 +39,6 @@ var validVPNTypes = map[VPNType]struct{}{
 }
 
 const (
-	tableMangle     = "mangle"
 	tableNat        = "nat"
 	chainPrerouting = "PREROUTING"
 )

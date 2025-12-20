@@ -70,7 +70,7 @@ func (s *VpnerServer) UnblockDel(ctx context.Context, req *grpcpb.UnblockDelRequ
 	if err := patterns.Validate(req.Domain); err != nil {
 		return errorGeneric(fmt.Sprintf("Invalid pattern: %v", err)), nil
 	}
-	vpnType, chainName, exists := s.unblock.MatchDomain(req.Domain)
+	vpnType, chainName, _, exists := s.unblock.MatchDomain(req.Domain)
 	if !exists {
 		return errorGeneric("Rule does not exist"), nil
 	}

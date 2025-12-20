@@ -200,6 +200,10 @@ func (m *UnblockManager) DelChain(vpnType, chainName string) error {
 			if err := m.applyStaticEntry(vpnType, chainName, entry, false); err != nil {
 				return err
 			}
+		} else {
+			if err := cleanupDomainEntries(vpnType, chainName, entry); err != nil {
+				logging.Warnf("cleanup ipset entries for %s/%s failed: %v", vpnType, chainName, err)
+			}
 		}
 	}
 	return nil
@@ -224,7 +228,7 @@ func (m *UnblockManager) GetAllRules() (*VPNRulesConfig, error) {
 	return m.cachedConf, nil
 }
 
-func (m *UnblockManager) MatchDomain(domain string) (string, string, bool) {
+func (m *UnblockManager) MatchDomain(domain string) (string, string, string, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -235,12 +239,12 @@ func (m *UnblockManager) MatchDomain(domain string) (string, string, bool) {
 		for chain, rules := range *set {
 			for _, pattern := range rules {
 				if patterns.Match(pattern, domain) {
-					return vpnType, chain, true
+					return vpnType, chain, pattern, true
 				}
 			}
 		}
 	}
-	return "", "", false
+	return "", "", "", false
 }
 
 func (m *UnblockManager) restoreStaticRules() error {

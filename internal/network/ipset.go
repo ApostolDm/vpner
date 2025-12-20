@@ -14,7 +14,7 @@ import (
 
 const (
 	minIpsetVersion     = "6.0"
-	DefaultIPSetTimeout = 2000000 // ~23 days, fits ipset timeout range
+	DefaultIPSetTimeout = 0 // no timeout (forever)
 )
 
 var (
@@ -338,13 +338,29 @@ func ensureSetProperties(name string, set *IPSet) error {
 	if err != nil {
 		return err
 	}
-	needTimeout := set.Timeout > 0 && !strings.Contains(createLine, " timeout ")
-	needComment := set.WithComments && !strings.Contains(createLine, " comment")
-	if !needTimeout && !needComment {
+	hasTimeout := strings.Contains(createLine, " timeout ")
+	hasComment := strings.Contains(createLine, " comment")
+	needRecreate := false
+	if set.Timeout > 0 {
+		if !hasTimeout {
+			needRecreate = true
+		}
+	} else if hasTimeout {
+		needRecreate = true
+	}
+	if set.WithComments && !hasComment {
+		needRecreate = true
+	}
+	if !needRecreate {
 		return nil
 	}
 	log.Printf("ipset %s missing required options; recreating", name)
 	entries := extractAddLines(data, name)
+	if set.Timeout <= 0 {
+		for i, line := range entries {
+			entries[i] = stripTimeoutOption(line)
+		}
+	}
 	script := &bytes.Buffer{}
 	fmt.Fprintf(script, "destroy %s\n", name)
 	fmt.Fprintf(script, "create %s %s family %s hashsize %d maxelem %d",
@@ -397,25 +413,103 @@ func extractAddLines(data []byte, name string) []string {
 	return lines
 }
 
-func extractEntriesByComment(data []byte, name, comment string) []string {
+var timeoutOptionPattern = regexp.MustCompile(`\s+timeout\s+\d+`)
+
+func stripTimeoutOption(line string) string {
+	return timeoutOptionPattern.ReplaceAllString(line, "")
+}
+
+type ipsetEntry struct {
+	Entry   string
+	Comment string
+}
+
+func parseCommentFromLine(line string) string {
+	const key = " comment "
+	idx := strings.Index(line, key)
+	if idx == -1 {
+		return ""
+	}
+	rest := line[idx+len(key):]
+	if rest == "" {
+		return ""
+	}
+	if strings.HasPrefix(rest, "\"") {
+		rest = rest[1:]
+		end := strings.Index(rest, "\"")
+		if end == -1 {
+			return strings.TrimSpace(rest)
+		}
+		return rest[:end]
+	}
+	fields := strings.Fields(rest)
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
+}
+
+func extractEntriesWithComments(data []byte, name string) []ipsetEntry {
 	scanner := bufio.NewScanner(bytes.NewReader(data))
-	var entries []string
-	needle := fmt.Sprintf("\"%s\"", comment)
+	var entries []ipsetEntry
 	for scanner.Scan() {
 		line := scanner.Text()
-		if !strings.HasPrefix(line, "add ") || !strings.Contains(line, needle) {
+		if !strings.HasPrefix(line, "add ") {
 			continue
 		}
 		parts := strings.Fields(line)
-		if len(parts) > 2 && parts[1] == name {
-			entries = append(entries, parts[2])
+		if len(parts) < 3 || parts[1] != name {
+			continue
 		}
+		entries = append(entries, ipsetEntry{
+			Entry:   parts[2],
+			Comment: parseCommentFromLine(line),
+		})
 	}
 	return entries
 }
 
-func removeEntriesByComment(name, comment string) error {
-	if comment == "" {
+func listEntriesWithComments(name string) ([]ipsetEntry, error) {
+	if err := initCheck(); err != nil {
+		return nil, err
+	}
+	if err := exec.Command(ipsetPath, "-q", "list", name).Run(); err != nil {
+		return nil, nil
+	}
+	data, err := exec.Command(ipsetPath, "save", name).CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect ipset %s: %v (%s)", name, err, data)
+	}
+	return extractEntriesWithComments(data, name), nil
+}
+
+func entriesByCommentPrefix(name, prefix string) ([]string, error) {
+	if prefix == "" {
+		return nil, nil
+	}
+	entries, err := listEntriesWithComments(name)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Comment, prefix) {
+			out = append(out, entry.Entry)
+		}
+	}
+	return out, nil
+}
+
+func removeEntriesByCommentPrefix(name, prefix string) error {
+	entries, err := entriesByCommentPrefix(name, prefix)
+	if err != nil {
+		return err
+	}
+	return removeEntries(name, entries)
+}
+
+func removeEntries(name string, entries []string) error {
+	if len(entries) == 0 {
 		return nil
 	}
 	if err := initCheck(); err != nil {
@@ -424,11 +518,6 @@ func removeEntriesByComment(name, comment string) error {
 	if err := exec.Command(ipsetPath, "-q", "list", name).Run(); err != nil {
 		return nil
 	}
-	data, err := exec.Command(ipsetPath, "save", name).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to inspect ipset %s: %v (%s)", name, err, data)
-	}
-	entries := extractEntriesByComment(data, name, comment)
 	for _, entry := range entries {
 		if out, err := exec.Command(ipsetPath, "del", name, entry).CombinedOutput(); err != nil {
 			log.Printf("warning: failed to delete %s from %s: %v (%s)", entry, name, err, out)

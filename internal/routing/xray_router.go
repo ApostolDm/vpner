@@ -38,7 +38,7 @@ func (r *XrayRouter) Apply(chain string, info network.XrayInfoDetails) error {
 	if err != nil {
 		return err
 	}
-	if err := network.EnsureIPSet(ipsetName, "hash:net", &network.Params{Timeout: network.DefaultIPSetTimeout}); err != nil {
+	if err := network.EnsureIPSet(ipsetName, "hash:net", &network.Params{Timeout: network.DefaultIPSetTimeout, WithComments: true}); err != nil {
 		return fmt.Errorf("ensure ipset %s: %w", ipsetName, err)
 	}
 	r.mu.Lock()
