@@ -2,6 +2,7 @@ package network
 
 import (
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 
@@ -23,12 +24,14 @@ const (
 type ipRuleManager struct {
 	unblockManager *UnblockManager
 	resolver       *dohclient.Resolver
+	ipv6Enabled    bool
 }
 
 func NewIpRuleManager(unblockManager *UnblockManager, resolver *dohclient.Resolver) *ipRuleManager {
 	return &ipRuleManager{
 		unblockManager: unblockManager,
 		resolver:       resolver,
+		ipv6Enabled:    unblockManager != nil && unblockManager.ipv6Enabled,
 	}
 }
 
@@ -37,18 +40,90 @@ func (m *ipRuleManager) CheckIPsInIpset(domain string) error {
 	if !ok {
 		return nil
 	}
-	ips, err := m.resolver.ResolveDomain(domain, dns.TypeA)
+	if err := m.syncDomainIPs(vpnType, chainName, rule, domain, dns.TypeA, false); err != nil {
+		return err
+	}
+	if m.ipv6Enabled {
+		if err := m.syncDomainIPs(vpnType, chainName, rule, domain, dns.TypeAAAA, true); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func obtainOrCreateIPSetFamily(name, family string) (*IPSet, error) {
+	ipsetCacheMu.Lock()
+	defer ipsetCacheMu.Unlock()
+
+	if set, ok := ipsetCache[name]; ok {
+		return set, nil
+	}
+	params := &Params{Timeout: DefaultIPSetTimeout, WithComments: true, HashFamily: family}
+	set, err := NewIPset(name, "hash:net", params)
+	if err != nil {
+		return nil, err
+	}
+	ipsetCache[name] = set
+	return set, nil
+}
+
+func cleanupDomainEntries(vpnType, chainName, pattern string, ipv6Enabled bool) error {
+	if pattern == "" {
+		return nil
+	}
+	if err := cleanupDomainEntriesForSet(vpnType, chainName, pattern, false); err != nil {
+		return err
+	}
+	if err := cleanupDomainEntriesForSet(vpnType, chainName, pattern, true); err != nil {
+		if ipv6Enabled {
+			return err
+		}
+	}
+	return nil
+}
+
+func buildRuleComment(rule, domain string) string {
+	return ipsetCommentPrefix + rule + ipsetCommentDomainPart + domain
+}
+
+func ruleCommentPrefix(rule string) string {
+	return ipsetCommentPrefix + rule + ipsetCommentDomainPart
+}
+
+func isNoRecordsError(err error) bool {
+	return strings.Contains(err.Error(), "no A/AAAA records found")
+}
+
+func (m *ipRuleManager) syncDomainIPs(vpnType, chainName, rule, domain string, qtype uint16, ipv6 bool) error {
+	ips, err := m.resolver.ResolveDomain(domain, qtype)
 	if err != nil {
 		if !isNoRecordsError(err) {
 			return fmt.Errorf("failed to resolve domain %q: %w", domain, err)
 		}
 		ips = nil
 	}
-	ipsetName, err := IpsetName(vpnType, chainName)
-	if err != nil {
-		return fmt.Errorf("failed to get ipset name for %q: %w", domain, err)
+
+	var (
+		ipsetName string
+		family    string
+	)
+	if ipv6 {
+		var err error
+		ipsetName, err = IpsetName6(vpnType, chainName)
+		if err != nil {
+			return fmt.Errorf("failed to get ipv6 ipset name for %q: %w", domain, err)
+		}
+		family = "inet6"
+	} else {
+		var err error
+		ipsetName, err = IpsetName(vpnType, chainName)
+		if err != nil {
+			return fmt.Errorf("failed to get ipset name for %q: %w", domain, err)
+		}
+		family = "inet"
 	}
-	set, err := obtainOrCreateIPSet(ipsetName)
+
+	set, err := obtainOrCreateIPSetFamily(ipsetName, family)
 	if err != nil {
 		return fmt.Errorf("failed to prepare ipset %q: %w", ipsetName, err)
 	}
@@ -72,9 +147,9 @@ func (m *ipRuleManager) CheckIPsInIpset(domain string) error {
 		return fmt.Errorf("failed to cleanup legacy ipset entries for %q: %w", domain, err)
 	}
 
-	resolved := make(map[string]struct{}, len(ips))
-	for _, ip := range ips {
-		resolved[ip.String()] = struct{}{}
+	resolved := make(map[string]struct{})
+	for _, ip := range filterIPs(ips, ipv6) {
+		resolved[ip] = struct{}{}
 	}
 	existingSet := make(map[string]struct{}, len(existing))
 	for _, entry := range existing {
@@ -101,26 +176,14 @@ func (m *ipRuleManager) CheckIPsInIpset(domain string) error {
 	return nil
 }
 
-func obtainOrCreateIPSet(name string) (*IPSet, error) {
-	ipsetCacheMu.Lock()
-	defer ipsetCacheMu.Unlock()
-
-	if set, ok := ipsetCache[name]; ok {
-		return set, nil
+func cleanupDomainEntriesForSet(vpnType, chainName, pattern string, ipv6 bool) error {
+	var ipsetName string
+	var err error
+	if ipv6 {
+		ipsetName, err = IpsetName6(vpnType, chainName)
+	} else {
+		ipsetName, err = IpsetName(vpnType, chainName)
 	}
-	set, err := NewIPset(name, "hash:net", &Params{Timeout: DefaultIPSetTimeout, WithComments: true})
-	if err != nil {
-		return nil, err
-	}
-	ipsetCache[name] = set
-	return set, nil
-}
-
-func cleanupDomainEntries(vpnType, chainName, pattern string) error {
-	if pattern == "" {
-		return nil
-	}
-	ipsetName, err := IpsetName(vpnType, chainName)
 	if err != nil {
 		return err
 	}
@@ -143,14 +206,17 @@ func cleanupDomainEntries(vpnType, chainName, pattern string) error {
 	return removeEntries(ipsetName, stale)
 }
 
-func buildRuleComment(rule, domain string) string {
-	return ipsetCommentPrefix + rule + ipsetCommentDomainPart + domain
-}
-
-func ruleCommentPrefix(rule string) string {
-	return ipsetCommentPrefix + rule + ipsetCommentDomainPart
-}
-
-func isNoRecordsError(err error) bool {
-	return strings.Contains(err.Error(), "no A/AAAA records found")
+func filterIPs(ips []net.IP, ipv6 bool) []string {
+	out := make([]string, 0, len(ips))
+	for _, ip := range ips {
+		if ipv6 {
+			if ip.To4() != nil {
+				continue
+			}
+		} else if ip.To4() == nil {
+			continue
+		}
+		out = append(out, ip.String())
+	}
+	return out
 }

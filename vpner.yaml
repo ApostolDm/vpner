@@ -29,3 +29,7 @@ grpc:
     password: "secret123"
 
 unblock-rules-path: "/opt/etc/vpner/vpner_unblock.yaml"
+
+network:
+  lan-interface: "br0"
+  enable-ipv6: false

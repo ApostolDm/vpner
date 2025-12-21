@@ -338,14 +338,14 @@ func ensureSetProperties(name string, set *IPSet) error {
 	if err != nil {
 		return err
 	}
-	hasTimeout := strings.Contains(createLine, " timeout ")
+	timeoutValue, hasTimeout := parseTimeoutValue(createLine)
 	hasComment := strings.Contains(createLine, " comment")
 	needRecreate := false
 	if set.Timeout > 0 {
-		if !hasTimeout {
+		if !hasTimeout || timeoutValue != set.Timeout {
 			needRecreate = true
 		}
-	} else if hasTimeout {
+	} else if hasTimeout && timeoutValue > 0 {
 		needRecreate = true
 	}
 	if set.WithComments && !hasComment {
@@ -361,25 +361,8 @@ func ensureSetProperties(name string, set *IPSet) error {
 			entries[i] = stripTimeoutOption(line)
 		}
 	}
-	script := &bytes.Buffer{}
-	fmt.Fprintf(script, "destroy %s\n", name)
-	fmt.Fprintf(script, "create %s %s family %s hashsize %d maxelem %d",
-		name, set.HashType, set.HashFamily, set.HashSize, set.MaxElem)
-	if set.Timeout > 0 {
-		fmt.Fprintf(script, " timeout %d", set.Timeout)
-	}
-	if set.WithComments {
-		script.WriteString(" comment")
-	}
-	script.WriteByte('\n')
-	for _, line := range entries {
-		script.WriteString(line)
-		script.WriteByte('\n')
-	}
-	cmd := exec.Command(ipsetPath, "restore")
-	cmd.Stdin = script
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to recreate ipset %s: %v (%s)", name, err, out)
+	if err := recreateIPSetWithSwap(name, set, entries); err != nil {
+		return err
 	}
 	return nil
 }
@@ -414,9 +397,63 @@ func extractAddLines(data []byte, name string) []string {
 }
 
 var timeoutOptionPattern = regexp.MustCompile(`\s+timeout\s+\d+`)
+var timeoutValuePattern = regexp.MustCompile(`\stimeout\s+(\d+)`)
 
 func stripTimeoutOption(line string) string {
 	return timeoutOptionPattern.ReplaceAllString(line, "")
+}
+
+func parseTimeoutValue(line string) (int, bool) {
+	match := timeoutValuePattern.FindStringSubmatch(line)
+	if len(match) < 2 {
+		return 0, false
+	}
+	val, err := strconv.Atoi(match[1])
+	if err != nil {
+		return 0, false
+	}
+	return val, true
+}
+
+func recreateIPSetWithSwap(name string, set *IPSet, entries []string) error {
+	temp := name + "-tmp"
+	if err := set.createHashSet(temp); err != nil {
+		return err
+	}
+
+	if len(entries) > 0 {
+		script := &bytes.Buffer{}
+		for _, line := range entries {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			line = replaceAddSetName(line, name, temp)
+			script.WriteString(line)
+			script.WriteByte('\n')
+		}
+		cmd := exec.Command(ipsetPath, "restore")
+		cmd.Stdin = script
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to restore ipset %s: %v (%s)", temp, err, out)
+		}
+	}
+
+	if err := Swap(temp, name); err != nil {
+		return err
+	}
+	if err := destroyIPSet(temp); err != nil {
+		log.Printf("warning: failed to destroy temp ipset %s: %v", temp, err)
+	}
+	return nil
+}
+
+func replaceAddSetName(line, oldName, newName string) string {
+	prefix := "add " + oldName + " "
+	if strings.HasPrefix(line, prefix) {
+		return "add " + newName + " " + line[len(prefix):]
+	}
+	return line
 }
 
 type ipsetEntry struct {

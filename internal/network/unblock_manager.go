@@ -3,6 +3,7 @@ package network
 import (
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"sync"
 
@@ -47,18 +48,20 @@ func (v *VPNRulesConfig) RuleMap() map[string]*VPNRuleSet {
 }
 
 type UnblockManager struct {
-	FilePath   string
-	cachedConf *VPNRulesConfig
-	mu         sync.RWMutex
+	FilePath    string
+	cachedConf  *VPNRulesConfig
+	mu          sync.RWMutex
+	ipv6Enabled bool
 }
 
-func NewUnblockManager(path string) *UnblockManager {
+func NewUnblockManager(path string, ipv6Enabled bool) *UnblockManager {
 	if path == "" {
 		path = defaultRulesFile
 	}
 	return &UnblockManager{
-		FilePath:   path,
-		cachedConf: &VPNRulesConfig{},
+		FilePath:    path,
+		cachedConf:  &VPNRulesConfig{},
+		ipv6Enabled: ipv6Enabled,
 	}
 }
 
@@ -106,6 +109,9 @@ func (m *UnblockManager) writeConfig() error {
 }
 
 func (m *UnblockManager) AddRule(vpnType, chainName, pattern string) error {
+	if isStaticPattern(pattern) && isIPv6Pattern(pattern) && !m.ipv6Enabled {
+		return fmt.Errorf("ipv6 support is disabled")
+	}
 	m.mu.Lock()
 	rules := m.cachedConf.RuleMap()
 	set, ok := rules[vpnType]
@@ -170,7 +176,7 @@ func (m *UnblockManager) DelRule(vpnType, chainName, pattern string) error {
 	if isStatic {
 		return m.applyStaticEntry(vpnType, chainName, pattern, false)
 	}
-	if err := cleanupDomainEntries(vpnType, chainName, pattern); err != nil {
+	if err := cleanupDomainEntries(vpnType, chainName, pattern, m.ipv6Enabled); err != nil {
 		logging.Warnf("cleanup ipset entries for %s/%s failed: %v", vpnType, chainName, err)
 	}
 	return nil
@@ -201,7 +207,7 @@ func (m *UnblockManager) DelChain(vpnType, chainName string) error {
 				return err
 			}
 		} else {
-			if err := cleanupDomainEntries(vpnType, chainName, entry); err != nil {
+			if err := cleanupDomainEntries(vpnType, chainName, entry, m.ipv6Enabled); err != nil {
 				logging.Warnf("cleanup ipset entries for %s/%s failed: %v", vpnType, chainName, err)
 			}
 		}
@@ -280,11 +286,32 @@ func (m *UnblockManager) applyStaticEntry(vpnType, chainName, pattern string, ad
 	if !isStaticPattern(pattern) {
 		return nil
 	}
-	ipsetName, err := IpsetName(vpnType, chainName)
-	if err != nil {
-		return err
+	isV6 := isIPv6Pattern(pattern)
+	if isV6 && !m.ipv6Enabled {
+		if add {
+			logging.Warnf("skip ipv6 rule %s/%s: ipv6 disabled", vpnType, chainName)
+		}
+		return nil
 	}
-	set, err := obtainOrCreateIPSet(ipsetName)
+
+	var (
+		ipsetName string
+		set       *IPSet
+		err       error
+	)
+	if isV6 {
+		ipsetName, err = IpsetName6(vpnType, chainName)
+		if err != nil {
+			return err
+		}
+		set, err = obtainOrCreateIPSetFamily(ipsetName, "inet6")
+	} else {
+		ipsetName, err = IpsetName(vpnType, chainName)
+		if err != nil {
+			return err
+		}
+		set, err = obtainOrCreateIPSetFamily(ipsetName, "inet")
+	}
 	if err != nil {
 		return err
 	}
@@ -302,4 +329,14 @@ type ruleRef struct {
 
 func isStaticPattern(value string) bool {
 	return patterns.IsIP(value) || patterns.IsCIDR(value)
+}
+
+func isIPv6Pattern(value string) bool {
+	if ip := net.ParseIP(value); ip != nil {
+		return ip.To4() == nil
+	}
+	if _, netw, err := net.ParseCIDR(value); err == nil {
+		return netw.IP.To4() == nil
+	}
+	return false
 }

@@ -22,7 +22,7 @@ type runtimeGraph struct {
 func buildRuntimeGraph(cfg config.FullConfig) (*runtimeGraph, error) {
 	resolver := dohclient.NewResolver(cfg.DoH)
 
-	unblock := network.NewUnblockManager(cfg.UnblockRulesPath)
+	unblock := network.NewUnblockManager(cfg.UnblockRulesPath, cfg.Network.EnableIPv6)
 	if err := unblock.Init(); err != nil {
 		return nil, fmt.Errorf("failed to init unblock manager: %w", err)
 	}
@@ -32,8 +32,8 @@ func buildRuntimeGraph(cfg config.FullConfig) (*runtimeGraph, error) {
 		return nil, fmt.Errorf("failed to init xray manager: %w", err)
 	}
 
-	iptables := network.NewIptablesManager()
-	xrayRouter := routing.NewXrayRouter(iptables, cfg.Network.LANInterface)
+	iptables := network.NewIptablesManager(cfg.Network.EnableIPv6)
+	xrayRouter := routing.NewXrayRouter(iptables, cfg.Network.LANInterface, cfg.Network.EnableIPv6)
 
 	dnsSvc := dnsservice.New(cfg.DNSServer, unblock, resolver)
 	xraySvc := xrayservice.New(xrayMgr)

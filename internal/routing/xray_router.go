@@ -14,16 +14,19 @@ type XrayRouter struct {
 
 	mu      sync.Mutex
 	applied map[string]bool // chain -> applied
+
+	ipv6Enabled bool
 }
 
-func NewXrayRouter(ipt *network.IptablesManager, lanInterface string) *XrayRouter {
+func NewXrayRouter(ipt *network.IptablesManager, lanInterface string, ipv6Enabled bool) *XrayRouter {
 	if lanInterface == "" {
 		lanInterface = "br0"
 	}
 	return &XrayRouter{
-		iptables: ipt,
-		lanIface: lanInterface,
-		applied:  make(map[string]bool),
+		iptables:    ipt,
+		lanIface:    lanInterface,
+		applied:     make(map[string]bool),
+		ipv6Enabled: ipv6Enabled,
 	}
 }
 
@@ -40,6 +43,15 @@ func (r *XrayRouter) Apply(chain string, info network.XrayInfoDetails) error {
 	}
 	if err := network.EnsureIPSet(ipsetName, "hash:net", &network.Params{Timeout: network.DefaultIPSetTimeout, WithComments: true}); err != nil {
 		return fmt.Errorf("ensure ipset %s: %w", ipsetName, err)
+	}
+	if r.ipv6Enabled {
+		ipsetName6, err := network.IpsetName6("Xray", chain)
+		if err != nil {
+			return err
+		}
+		if err := network.EnsureIPSet(ipsetName6, "hash:net", &network.Params{Timeout: network.DefaultIPSetTimeout, WithComments: true, HashFamily: "inet6"}); err != nil {
+			return fmt.Errorf("ensure ipv6 ipset %s: %w", ipsetName6, err)
+		}
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()

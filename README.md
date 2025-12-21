@@ -160,6 +160,7 @@ grpc:
 unblock-rules-path: "/opt/etc/vpner/vpner_unblock.yaml"
 network:
   lan-interface: "br0"
+  enable-ipv6: false
 ```
 
 **Sections:**
@@ -168,6 +169,7 @@ network:
 - `grpc` – server endpoints for `vpnerctl`. TCP listener supports optional password (`authorization` metadata). UNIX socket can be auth-free.
 - `unblock-rules-path` – YAML file storing domain/IP/CIDR rules. Each rule maps to an interface/chain and is synchronized into ipset with comments.
 - `network.lan-interface` – interface used for iptables redirection when applying Xray routes.
+- `network.enable-ipv6` – enable IPv6 ipset/ip6tables/ip -6 routing (default: false).
 
 The unblock file (`/opt/etc/vpner/vpner_unblock.yaml`) is created on demand and can include rules like:
 

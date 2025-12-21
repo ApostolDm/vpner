@@ -32,6 +32,7 @@ type GRPCConfig struct {
 
 type NetworkConfig struct {
 	LANInterface string `yaml:"lan-interface"`
+	EnableIPv6   bool   `yaml:"enable-ipv6"`
 }
 
 type FullConfig struct {
