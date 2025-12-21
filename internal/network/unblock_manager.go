@@ -52,9 +52,10 @@ type UnblockManager struct {
 	cachedConf  *VPNRulesConfig
 	mu          sync.RWMutex
 	ipv6Enabled bool
+	ipsetDebug  bool
 }
 
-func NewUnblockManager(path string, ipv6Enabled bool) *UnblockManager {
+func NewUnblockManager(path string, ipv6Enabled bool, ipsetDebug bool) *UnblockManager {
 	if path == "" {
 		path = defaultRulesFile
 	}
@@ -62,6 +63,7 @@ func NewUnblockManager(path string, ipv6Enabled bool) *UnblockManager {
 		FilePath:    path,
 		cachedConf:  &VPNRulesConfig{},
 		ipv6Enabled: ipv6Enabled,
+		ipsetDebug:  ipsetDebug,
 	}
 }
 
@@ -176,7 +178,7 @@ func (m *UnblockManager) DelRule(vpnType, chainName, pattern string) error {
 	if isStatic {
 		return m.applyStaticEntry(vpnType, chainName, pattern, false)
 	}
-	if err := cleanupDomainEntries(vpnType, chainName, pattern, m.ipv6Enabled); err != nil {
+	if err := cleanupDomainEntries(vpnType, chainName, pattern, m.ipv6Enabled, m.ipsetDebug); err != nil {
 		logging.Warnf("cleanup ipset entries for %s/%s failed: %v", vpnType, chainName, err)
 	}
 	return nil
@@ -207,7 +209,7 @@ func (m *UnblockManager) DelChain(vpnType, chainName string) error {
 				return err
 			}
 		} else {
-			if err := cleanupDomainEntries(vpnType, chainName, entry, m.ipv6Enabled); err != nil {
+			if err := cleanupDomainEntries(vpnType, chainName, entry, m.ipv6Enabled, m.ipsetDebug); err != nil {
 				logging.Warnf("cleanup ipset entries for %s/%s failed: %v", vpnType, chainName, err)
 			}
 		}
@@ -316,7 +318,13 @@ func (m *UnblockManager) applyStaticEntry(vpnType, chainName, pattern string, ad
 		return err
 	}
 	if add {
+		if m.ipsetDebug {
+			logging.Infof("ipset add: set=%s entry=%s reason=static-rule vpn=%s chain=%s", ipsetName, pattern, vpnType, chainName)
+		}
 		return set.Add(pattern, 0)
+	}
+	if m.ipsetDebug {
+		logging.Infof("ipset del: set=%s entry=%s reason=static-rule-delete vpn=%s chain=%s", ipsetName, pattern, vpnType, chainName)
 	}
 	return set.Del(pattern)
 }

@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	grpcpb "github.com/ApostolDmitry/vpner/internal/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -80,11 +82,35 @@ func (s *VpnerServer) XraySetAutorun(ctx context.Context, req *grpcpb.XrayAutoRu
 }
 
 func (s *VpnerServer) HookRestore(ctx context.Context, _ *grpcpb.Empty) (*grpcpb.GenericResponse, error) {
+	restoreV4, restoreV6 := hookRestoreFamily(ctx)
 	if s.xrayRouter != nil {
-		s.xrayRouter.ResetState()
+		if restoreV4 && restoreV6 {
+			s.xrayRouter.ResetState()
+		} else {
+			s.xrayRouter.ResetStateFamily(restoreV4, restoreV6)
+		}
 	}
-	s.RestoreXrayRouting()
+	s.RestoreXrayRoutingFamily(restoreV4, restoreV6)
 	return successGeneric("Routing restore triggered"), nil
+}
+
+func hookRestoreFamily(ctx context.Context) (bool, bool) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return true, true
+	}
+	values := md.Get("hook-family")
+	if len(values) == 0 {
+		return true, true
+	}
+	switch strings.ToLower(values[0]) {
+	case "ipv4", "v4", "iptables":
+		return true, false
+	case "ipv6", "v6", "ip6tables":
+		return false, true
+	default:
+		return true, true
+	}
 }
 
 func (s *VpnerServer) XrayCreate(ctx context.Context, req *grpcpb.XrayCreateRequest) (*grpcpb.GenericResponse, error) {

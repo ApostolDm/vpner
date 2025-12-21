@@ -159,17 +159,29 @@ func (v VPNType) IsValid() bool {
 }
 
 func (i *IptablesManager) AddRules(vpnType VPNType, ipsetName string, param int, iface, vpnIface string) error {
-	if err := i.addRulesV4(vpnType, ipsetName, param, iface, vpnIface); err != nil {
+	if err := i.AddRulesV4(vpnType, ipsetName, param, iface, vpnIface); err != nil {
 		return err
 	}
-	if i.ipv6Enabled {
-		ipsetName6, err := IpsetName6FromBase(ipsetName)
-		if err != nil {
-			return err
-		}
-		if err := i.addRulesV6(vpnType, ipsetName6, param, iface, vpnIface); err != nil {
-			return err
-		}
+	if err := i.AddRulesV6(vpnType, ipsetName, param, iface, vpnIface); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (i *IptablesManager) AddRulesV4(vpnType VPNType, ipsetName string, param int, iface, vpnIface string) error {
+	return i.addRulesV4(vpnType, ipsetName, param, iface, vpnIface)
+}
+
+func (i *IptablesManager) AddRulesV6(vpnType VPNType, ipsetName string, param int, iface, vpnIface string) error {
+	if !i.ipv6Enabled {
+		return nil
+	}
+	ipsetName6, err := IpsetName6FromBase(ipsetName)
+	if err != nil {
+		return err
+	}
+	if err := i.addRulesV6(vpnType, ipsetName6, param, iface, vpnIface); err != nil {
+		return err
 	}
 	return nil
 }
@@ -273,6 +285,16 @@ func (i *IptablesManager) addRulesV6(vpnType VPNType, ipsetName string, param in
 }
 
 func (i *IptablesManager) RemoveRules(ipsetName string) error {
+	if err := i.RemoveRulesV4(ipsetName); err != nil {
+		return err
+	}
+	if err := i.RemoveRulesV6(ipsetName); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (i *IptablesManager) RemoveRulesV4(ipsetName string) error {
 	info, ok := i.routingV4[ipsetName]
 	if !ok {
 		return fmt.Errorf("no routing info found for ipset: %s", ipsetName)
@@ -292,17 +314,18 @@ func (i *IptablesManager) RemoveRules(ipsetName string) error {
 	}
 
 	delete(i.routingV4, ipsetName)
-
-	if i.ipv6Enabled {
-		ipsetName6, err := IpsetName6FromBase(ipsetName)
-		if err != nil {
-			return err
-		}
-		if err := i.removeRulesV6(ipsetName6); err != nil {
-			return err
-		}
-	}
 	return nil
+}
+
+func (i *IptablesManager) RemoveRulesV6(ipsetName string) error {
+	if !i.ipv6Enabled {
+		return nil
+	}
+	ipsetName6, err := IpsetName6FromBase(ipsetName)
+	if err != nil {
+		return err
+	}
+	return i.removeRulesV6(ipsetName6)
 }
 
 func (i *IptablesManager) createChain(table, chain string) error {

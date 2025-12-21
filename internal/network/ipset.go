@@ -537,14 +537,6 @@ func entriesByCommentPrefix(name, prefix string) ([]string, error) {
 	return out, nil
 }
 
-func removeEntriesByCommentPrefix(name, prefix string) error {
-	entries, err := entriesByCommentPrefix(name, prefix)
-	if err != nil {
-		return err
-	}
-	return removeEntries(name, entries)
-}
-
 func removeEntries(name string, entries []string) error {
 	if len(entries) == 0 {
 		return nil

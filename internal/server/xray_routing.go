@@ -21,6 +21,10 @@ func (s *VpnerServer) removeXrayRouting(chain string) error {
 }
 
 func (s *VpnerServer) RestoreXrayRouting() {
+	s.RestoreXrayRoutingFamily(true, true)
+}
+
+func (s *VpnerServer) RestoreXrayRoutingFamily(restoreV4, restoreV6 bool) {
 	if s.xrayRouter == nil {
 		return
 	}
@@ -29,7 +33,7 @@ func (s *VpnerServer) RestoreXrayRouting() {
 		logging.Errorf("failed to list Xray configs: %v", err)
 		return
 	}
-	s.xrayRouter.Restore(infoMap, s.xrayService.IsRunning)
+	s.xrayRouter.RestoreFamily(infoMap, s.xrayService.IsRunning, restoreV4, restoreV6)
 }
 
 func (s *VpnerServer) DisableAllXrayRouting() {

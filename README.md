@@ -161,6 +161,7 @@ unblock-rules-path: "/opt/etc/vpner/vpner_unblock.yaml"
 network:
   lan-interface: "br0"
   enable-ipv6: false
+  ipset-debug: false
 ```
 
 **Sections:**
@@ -170,6 +171,7 @@ network:
 - `unblock-rules-path` – YAML file storing domain/IP/CIDR rules. Each rule maps to an interface/chain and is synchronized into ipset with comments.
 - `network.lan-interface` – interface used for iptables redirection when applying Xray routes.
 - `network.enable-ipv6` – enable IPv6 ipset/ip6tables/ip -6 routing (default: false).
+- `network.ipset-debug` – log reasons for ipset add/remove decisions (default: false).
 
 The unblock file (`/opt/etc/vpner/vpner_unblock.yaml`) is created on demand and can include rules like:
 

@@ -22,7 +22,7 @@ type runtimeGraph struct {
 func buildRuntimeGraph(cfg config.FullConfig) (*runtimeGraph, error) {
 	resolver := dohclient.NewResolver(cfg.DoH)
 
-	unblock := network.NewUnblockManager(cfg.UnblockRulesPath, cfg.Network.EnableIPv6)
+	unblock := network.NewUnblockManager(cfg.UnblockRulesPath, cfg.Network.EnableIPv6, cfg.Network.IPSetDebug)
 	if err := unblock.Init(); err != nil {
 		return nil, fmt.Errorf("failed to init unblock manager: %w", err)
 	}

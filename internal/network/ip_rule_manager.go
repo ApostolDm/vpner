@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/ApostolDmitry/vpner/internal/common/logging"
 	"github.com/ApostolDmitry/vpner/internal/common/patterns"
 	"github.com/ApostolDmitry/vpner/internal/dohclient"
 	"github.com/miekg/dns"
@@ -25,6 +26,7 @@ type ipRuleManager struct {
 	unblockManager *UnblockManager
 	resolver       *dohclient.Resolver
 	ipv6Enabled    bool
+	ipsetDebug     bool
 }
 
 func NewIpRuleManager(unblockManager *UnblockManager, resolver *dohclient.Resolver) *ipRuleManager {
@@ -32,6 +34,7 @@ func NewIpRuleManager(unblockManager *UnblockManager, resolver *dohclient.Resolv
 		unblockManager: unblockManager,
 		resolver:       resolver,
 		ipv6Enabled:    unblockManager != nil && unblockManager.ipv6Enabled,
+		ipsetDebug:     unblockManager != nil && unblockManager.ipsetDebug,
 	}
 }
 
@@ -46,6 +49,31 @@ func (m *ipRuleManager) CheckIPsInIpset(domain string) error {
 	if m.ipv6Enabled {
 		if err := m.syncDomainIPs(vpnType, chainName, rule, domain, dns.TypeAAAA, true); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func (m *ipRuleManager) SyncFromAnswers(domain string, ips []net.IP) error {
+	if len(ips) == 0 {
+		return nil
+	}
+	vpnType, chainName, rule, ok := m.unblockManager.MatchDomain(domain)
+	if !ok {
+		return nil
+	}
+	v4 := filterIPs(ips, false)
+	if len(v4) > 0 {
+		if err := m.syncResolvedIPs(vpnType, chainName, rule, domain, v4, false); err != nil {
+			return err
+		}
+	}
+	if m.ipv6Enabled {
+		v6 := filterIPs(ips, true)
+		if len(v6) > 0 {
+			if err := m.syncResolvedIPs(vpnType, chainName, rule, domain, v6, true); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -67,14 +95,14 @@ func obtainOrCreateIPSetFamily(name, family string) (*IPSet, error) {
 	return set, nil
 }
 
-func cleanupDomainEntries(vpnType, chainName, pattern string, ipv6Enabled bool) error {
+func cleanupDomainEntries(vpnType, chainName, pattern string, ipv6Enabled bool, ipsetDebug bool) error {
 	if pattern == "" {
 		return nil
 	}
-	if err := cleanupDomainEntriesForSet(vpnType, chainName, pattern, false); err != nil {
+	if err := cleanupDomainEntriesForSet(vpnType, chainName, pattern, false, ipsetDebug); err != nil {
 		return err
 	}
-	if err := cleanupDomainEntriesForSet(vpnType, chainName, pattern, true); err != nil {
+	if err := cleanupDomainEntriesForSet(vpnType, chainName, pattern, true, ipsetDebug); err != nil {
 		if ipv6Enabled {
 			return err
 		}
@@ -102,7 +130,14 @@ func (m *ipRuleManager) syncDomainIPs(vpnType, chainName, rule, domain string, q
 		}
 		ips = nil
 	}
+	resolved := filterIPs(ips, ipv6)
+	if len(resolved) == 0 {
+		return nil
+	}
+	return m.syncResolvedIPs(vpnType, chainName, rule, domain, resolved, ipv6)
+}
 
+func (m *ipRuleManager) syncResolvedIPs(vpnType, chainName, rule, domain string, resolved []string, ipv6 bool) error {
 	var (
 		ipsetName string
 		family    string
@@ -143,30 +178,41 @@ func (m *ipRuleManager) syncDomainIPs(vpnType, chainName, rule, domain string, q
 			legacy = append(legacy, entry.Entry)
 		}
 	}
+	for _, entry := range legacy {
+		if m.ipsetDebug {
+			logging.Infof("ipset del: set=%s entry=%s reason=legacy-comment domain=%s rule=%s", ipsetName, entry, domain, rule)
+		}
+	}
 	if err := removeEntries(ipsetName, legacy); err != nil {
 		return fmt.Errorf("failed to cleanup legacy ipset entries for %q: %w", domain, err)
 	}
 
-	resolved := make(map[string]struct{})
-	for _, ip := range filterIPs(ips, ipv6) {
-		resolved[ip] = struct{}{}
+	resolvedSet := make(map[string]struct{}, len(resolved))
+	for _, ip := range resolved {
+		resolvedSet[ip] = struct{}{}
 	}
 	existingSet := make(map[string]struct{}, len(existing))
 	for _, entry := range existing {
 		existingSet[entry] = struct{}{}
 	}
 
-	for ip := range resolved {
+	for ip := range resolvedSet {
 		if _, ok := existingSet[ip]; ok {
 			continue
+		}
+		if m.ipsetDebug {
+			logging.Infof("ipset add: set=%s entry=%s reason=resolved domain=%s rule=%s", ipsetName, ip, domain, rule)
 		}
 		if err := set.AddComment(ip, comment, 0); err != nil {
 			return fmt.Errorf("failed to add IP %s with comment to ipset: %w", ip, err)
 		}
 	}
 	for _, entry := range existing {
-		if _, ok := resolved[entry]; ok {
+		if _, ok := resolvedSet[entry]; ok {
 			continue
+		}
+		if m.ipsetDebug {
+			logging.Infof("ipset del: set=%s entry=%s reason=stale-resolve domain=%s rule=%s", ipsetName, entry, domain, rule)
 		}
 		if err := set.Del(entry); err != nil {
 			return fmt.Errorf("failed to delete stale IP %s from ipset: %w", entry, err)
@@ -176,7 +222,7 @@ func (m *ipRuleManager) syncDomainIPs(vpnType, chainName, rule, domain string, q
 	return nil
 }
 
-func cleanupDomainEntriesForSet(vpnType, chainName, pattern string, ipv6 bool) error {
+func cleanupDomainEntriesForSet(vpnType, chainName, pattern string, ipv6 bool, ipsetDebug bool) error {
 	var ipsetName string
 	var err error
 	if ipv6 {
@@ -187,7 +233,16 @@ func cleanupDomainEntriesForSet(vpnType, chainName, pattern string, ipv6 bool) e
 	if err != nil {
 		return err
 	}
-	if err := removeEntriesByCommentPrefix(ipsetName, ruleCommentPrefix(pattern)); err != nil {
+	prefixed, err := entriesByCommentPrefix(ipsetName, ruleCommentPrefix(pattern))
+	if err != nil {
+		return err
+	}
+	for _, entry := range prefixed {
+		if ipsetDebug {
+			logging.Infof("ipset del: set=%s entry=%s reason=rule-delete rule=%s", ipsetName, entry, pattern)
+		}
+	}
+	if err := removeEntries(ipsetName, prefixed); err != nil {
 		return err
 	}
 	entries, err := listEntriesWithComments(ipsetName)
@@ -201,6 +256,11 @@ func cleanupDomainEntriesForSet(vpnType, chainName, pattern string, ipv6 bool) e
 		}
 		if patterns.Match(pattern, entry.Comment) {
 			stale = append(stale, entry.Entry)
+		}
+	}
+	for _, entry := range stale {
+		if ipsetDebug {
+			logging.Infof("ipset del: set=%s entry=%s reason=rule-delete-legacy rule=%s", ipsetName, entry, pattern)
 		}
 	}
 	return removeEntries(ipsetName, stale)

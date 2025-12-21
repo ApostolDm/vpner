@@ -48,6 +48,8 @@
 - Конфиг: `/opt/etc/vpner/vpner.yaml` (см. `vpner.yaml` в репозитории).
 - Файл unblock: `/opt/etc/vpner/vpner_unblock.yaml`.
 - Сервис: `/opt/etc/init.d/S95vpnerd {start|stop|restart|status}`.
+- `network.enable-ipv6` — включить IPv6 ipset/ip6tables/ip -6 маршрутизацию (по умолчанию: false).
+- `network.ipset-debug` — логировать причины добавления/удаления ipset (по умолчанию: false).
 
 ## CLI
 

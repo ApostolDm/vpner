@@ -42,6 +42,7 @@ func main() {
 		addr     string
 		unixPath string
 		password string
+		family   string
 		timeout  time.Duration
 	)
 
@@ -49,8 +50,14 @@ func main() {
 	flag.StringVar(&addr, "addr", "", "vpnerd TCP address")
 	flag.StringVar(&unixPath, "unix", "", "vpnerd unix socket")
 	flag.StringVar(&password, "password", "", "password for vpnerd")
+	flag.StringVar(&family, "family", "", "iptables family to restore (v4/v6)")
 	flag.DurationVar(&timeout, "timeout", 5*time.Second, "RPC timeout")
 	flag.Parse()
+
+	family, err := normalizeFamily(family)
+	if err != nil {
+		log.Fatalf("invalid family: %v", err)
+	}
 
 	opts, err := resolveOptions(options{
 		ConfigPath: cfgPath,
@@ -70,6 +77,9 @@ func main() {
 
 	ctx, cancel := rt.Context(timeout)
 	defer cancel()
+	if family != "" {
+		ctx = metadata.AppendToOutgoingContext(ctx, "hook-family", family)
+	}
 
 	resp, err := rt.Client().HookRestore(ctx, &grpcpb.Empty{})
 	if err != nil {
@@ -190,5 +200,18 @@ func (r *rpcRuntime) Context(timeout time.Duration) (context.Context, context.Ca
 func (r *rpcRuntime) Close() {
 	if r.conn != nil {
 		_ = r.conn.Close()
+	}
+}
+
+func normalizeFamily(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "":
+		return "", nil
+	case "v4", "ipv4", "iptables":
+		return "ipv4", nil
+	case "v6", "ipv6", "ip6tables":
+		return "ipv6", nil
+	default:
+		return "", fmt.Errorf("unsupported family %q", value)
 	}
 }

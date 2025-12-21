@@ -2,6 +2,7 @@ package dnsserver
 
 import (
 	"log"
+	"net"
 	"strconv"
 	"strings"
 
@@ -106,9 +107,6 @@ func (s *DNSServer) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	defer func() { <-s.connSemaphore }()
 
 	domain := extractDomain(r)
-	if domain != "" {
-		go s.processDomain(domain)
-	}
 
 	if resolverIP := s.matchCustomResolver(domain); resolverIP != "" {
 		if s.config.Verbose {
@@ -123,6 +121,9 @@ func (s *DNSServer) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 		}
 		resp.Id = r.Id
 		_ = w.WriteMsg(resp)
+		if domain != "" {
+			go s.processDomainAnswers(domain, resp)
+		}
 		return
 	}
 
@@ -145,11 +146,21 @@ func (s *DNSServer) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	_ = w.WriteMsg(msg)
+	if domain != "" {
+		go s.processDomainAnswers(domain, msg)
+	}
 }
 
-func (s *DNSServer) processDomain(domain string) {
+func (s *DNSServer) processDomainAnswers(domain string, msg *dns.Msg) {
+	if msg == nil {
+		return
+	}
+	ips := extractIPs(msg)
+	if len(ips) == 0 {
+		return
+	}
 	manager := network.NewIpRuleManager(s.unblockManager, s.resolver)
-	if err := manager.CheckIPsInIpset(domain); err != nil {
+	if err := manager.SyncFromAnswers(domain, ips); err != nil {
 		log.Printf("IP rule error for domain %s: %v", domain, err)
 	}
 }
@@ -170,4 +181,24 @@ func extractDomain(msg *dns.Msg) string {
 		return strings.TrimSuffix(msg.Question[0].Name, ".")
 	}
 	return ""
+}
+
+func extractIPs(msg *dns.Msg) []net.IP {
+	if msg == nil {
+		return nil
+	}
+	ips := make([]net.IP, 0, len(msg.Answer))
+	for _, rr := range msg.Answer {
+		switch record := rr.(type) {
+		case *dns.A:
+			if record.A != nil {
+				ips = append(ips, record.A)
+			}
+		case *dns.AAAA:
+			if record.AAAA != nil {
+				ips = append(ips, record.AAAA)
+			}
+		}
+	}
+	return ips
 }
