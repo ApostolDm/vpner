@@ -34,3 +34,4 @@ network:
   lan-interface: "br0"
   enable-ipv6: false
   ipset-debug: false
+  ipset-stale-queries: 100

@@ -31,9 +31,10 @@ type GRPCConfig struct {
 }
 
 type NetworkConfig struct {
-	LANInterface string `yaml:"lan-interface"`
-	EnableIPv6   bool   `yaml:"enable-ipv6"`
-	IPSetDebug   bool   `yaml:"ipset-debug"`
+	LANInterface      string `yaml:"lan-interface"`
+	EnableIPv6        bool   `yaml:"enable-ipv6"`
+	IPSetDebug        bool   `yaml:"ipset-debug"`
+	IPSetStaleQueries int    `yaml:"ipset-stale-queries"`
 }
 
 type FullConfig struct {

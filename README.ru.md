@@ -50,6 +50,7 @@
 - Сервис: `/opt/etc/init.d/S95vpnerd {start|stop|restart|status}`.
 - `network.enable-ipv6` — включить IPv6 ipset/ip6tables/ip -6 маршрутизацию (по умолчанию: false).
 - `network.ipset-debug` — логировать причины добавления/удаления ipset (по умолчанию: false).
+- `network.ipset-stale-queries` — удалять IP из ipset только после указанного числа DNS‑ответов без него (0 = удаление сразу; по умолчанию: 0).
 
 ## CLI
 

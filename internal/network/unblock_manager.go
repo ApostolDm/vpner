@@ -48,22 +48,24 @@ func (v *VPNRulesConfig) RuleMap() map[string]*VPNRuleSet {
 }
 
 type UnblockManager struct {
-	FilePath    string
-	cachedConf  *VPNRulesConfig
-	mu          sync.RWMutex
-	ipv6Enabled bool
-	ipsetDebug  bool
+	FilePath          string
+	cachedConf        *VPNRulesConfig
+	mu                sync.RWMutex
+	ipv6Enabled       bool
+	ipsetDebug        bool
+	ipsetStaleQueries int
 }
 
-func NewUnblockManager(path string, ipv6Enabled bool, ipsetDebug bool) *UnblockManager {
+func NewUnblockManager(path string, ipv6Enabled bool, ipsetDebug bool, ipsetStaleQueries int) *UnblockManager {
 	if path == "" {
 		path = defaultRulesFile
 	}
 	return &UnblockManager{
-		FilePath:    path,
-		cachedConf:  &VPNRulesConfig{},
-		ipv6Enabled: ipv6Enabled,
-		ipsetDebug:  ipsetDebug,
+		FilePath:          path,
+		cachedConf:        &VPNRulesConfig{},
+		ipv6Enabled:       ipv6Enabled,
+		ipsetDebug:        ipsetDebug,
+		ipsetStaleQueries: ipsetStaleQueries,
 	}
 }
 

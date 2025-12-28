@@ -162,6 +162,7 @@ network:
   lan-interface: "br0"
   enable-ipv6: false
   ipset-debug: false
+  ipset-stale-queries: 100
 ```
 
 **Sections:**
@@ -172,6 +173,7 @@ network:
 - `network.lan-interface` – interface used for iptables redirection when applying Xray routes.
 - `network.enable-ipv6` – enable IPv6 ipset/ip6tables/ip -6 routing (default: false).
 - `network.ipset-debug` – log reasons for ipset add/remove decisions (default: false).
+- `network.ipset-stale-queries` – remove IPs from ipset only after they are missing from this many DNS answers (0 = immediate removal; default: 0).
 
 The unblock file (`/opt/etc/vpner/vpner_unblock.yaml`) is created on demand and can include rules like:
 

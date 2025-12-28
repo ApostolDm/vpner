@@ -13,8 +13,10 @@ import (
 )
 
 var (
-	ipsetCache   = make(map[string]*IPSet)
-	ipsetCacheMu sync.Mutex
+	ipsetCache       = make(map[string]*IPSet)
+	ipsetCacheMu     sync.Mutex
+	ipsetStaleCounts = make(map[string]map[string]int)
+	ipsetStaleMu     sync.Mutex
 )
 
 const (
@@ -23,10 +25,11 @@ const (
 )
 
 type ipRuleManager struct {
-	unblockManager *UnblockManager
-	resolver       *dohclient.Resolver
-	ipv6Enabled    bool
-	ipsetDebug     bool
+	unblockManager    *UnblockManager
+	resolver          *dohclient.Resolver
+	ipv6Enabled       bool
+	ipsetDebug        bool
+	ipsetStaleQueries int
 }
 
 func NewIpRuleManager(unblockManager *UnblockManager, resolver *dohclient.Resolver) *ipRuleManager {
@@ -35,6 +38,12 @@ func NewIpRuleManager(unblockManager *UnblockManager, resolver *dohclient.Resolv
 		resolver:       resolver,
 		ipv6Enabled:    unblockManager != nil && unblockManager.ipv6Enabled,
 		ipsetDebug:     unblockManager != nil && unblockManager.ipsetDebug,
+		ipsetStaleQueries: func() int {
+			if unblockManager != nil {
+				return unblockManager.ipsetStaleQueries
+			}
+			return 0
+		}(),
 	}
 }
 
@@ -116,6 +125,76 @@ func buildRuleComment(rule, domain string) string {
 
 func ruleCommentPrefix(rule string) string {
 	return ipsetCommentPrefix + rule + ipsetCommentDomainPart
+}
+
+type staleEntry struct {
+	entry  string
+	misses int
+}
+
+func buildStaleKey(ipsetName, comment string) string {
+	return ipsetName + "|" + comment
+}
+
+func clearStaleCountsForRule(ipsetName, pattern string) {
+	prefix := buildStaleKey(ipsetName, ruleCommentPrefix(pattern))
+	ipsetStaleMu.Lock()
+	defer ipsetStaleMu.Unlock()
+
+	for key := range ipsetStaleCounts {
+		if strings.HasPrefix(key, prefix) {
+			delete(ipsetStaleCounts, key)
+		}
+	}
+}
+
+func collectStaleEntries(key string, existing []string, resolved map[string]struct{}, threshold int) []staleEntry {
+	if threshold <= 0 {
+		return nil
+	}
+
+	ipsetStaleMu.Lock()
+	defer ipsetStaleMu.Unlock()
+
+	counts, ok := ipsetStaleCounts[key]
+	if !ok {
+		counts = make(map[string]int)
+		ipsetStaleCounts[key] = counts
+	}
+
+	for ip := range resolved {
+		counts[ip] = 0
+	}
+
+	existingSet := make(map[string]struct{}, len(existing))
+	var stale []staleEntry
+	for _, entry := range existing {
+		existingSet[entry] = struct{}{}
+		if _, ok := resolved[entry]; ok {
+			counts[entry] = 0
+			continue
+		}
+		counts[entry]++
+		if counts[entry] >= threshold {
+			stale = append(stale, staleEntry{entry: entry, misses: counts[entry]})
+			delete(counts, entry)
+		}
+	}
+
+	for ip := range counts {
+		if _, ok := existingSet[ip]; ok {
+			continue
+		}
+		if _, ok := resolved[ip]; ok {
+			continue
+		}
+		delete(counts, ip)
+	}
+	if len(counts) == 0 {
+		delete(ipsetStaleCounts, key)
+	}
+
+	return stale
 }
 
 func isNoRecordsError(err error) bool {
@@ -207,15 +286,27 @@ func (m *ipRuleManager) syncResolvedIPs(vpnType, chainName, rule, domain string,
 			return fmt.Errorf("failed to add IP %s with comment to ipset: %w", ip, err)
 		}
 	}
-	for _, entry := range existing {
-		if _, ok := resolvedSet[entry]; ok {
-			continue
+	if m.ipsetStaleQueries > 0 {
+		stale := collectStaleEntries(buildStaleKey(ipsetName, comment), existing, resolvedSet, m.ipsetStaleQueries)
+		for _, entry := range stale {
+			if m.ipsetDebug {
+				logging.Infof("ipset del: set=%s entry=%s reason=stale-miss misses=%d threshold=%d domain=%s rule=%s", ipsetName, entry.entry, entry.misses, m.ipsetStaleQueries, domain, rule)
+			}
+			if err := set.Del(entry.entry); err != nil {
+				return fmt.Errorf("failed to delete stale IP %s from ipset: %w", entry.entry, err)
+			}
 		}
-		if m.ipsetDebug {
-			logging.Infof("ipset del: set=%s entry=%s reason=stale-resolve domain=%s rule=%s", ipsetName, entry, domain, rule)
-		}
-		if err := set.Del(entry); err != nil {
-			return fmt.Errorf("failed to delete stale IP %s from ipset: %w", entry, err)
+	} else {
+		for _, entry := range existing {
+			if _, ok := resolvedSet[entry]; ok {
+				continue
+			}
+			if m.ipsetDebug {
+				logging.Infof("ipset del: set=%s entry=%s reason=stale-resolve domain=%s rule=%s", ipsetName, entry, domain, rule)
+			}
+			if err := set.Del(entry); err != nil {
+				return fmt.Errorf("failed to delete stale IP %s from ipset: %w", entry, err)
+			}
 		}
 	}
 
@@ -233,6 +324,7 @@ func cleanupDomainEntriesForSet(vpnType, chainName, pattern string, ipv6 bool, i
 	if err != nil {
 		return err
 	}
+	clearStaleCountsForRule(ipsetName, pattern)
 	prefixed, err := entriesByCommentPrefix(ipsetName, ruleCommentPrefix(pattern))
 	if err != nil {
 		return err
