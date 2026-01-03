@@ -100,8 +100,15 @@ After reboot every LAN client will use the DNS server shipped with `vpnerd`, and
 ARCH_LIST="arm64 mipsle:mipsel" ./make.sh
 ```
 
+Universal package (single `.ipk` containing multiple architectures):
+
+```sh
+ARCH_LIST="arm64 mipsle:mipsel-3.4 mips:mips-3.4" UNIVERSAL_IPK=1 ./make.sh
+```
+
 Produces:
 - `build/vpnerd_<ver>_arm64.ipk`, `build/vpnerd_<ver>_mipsel.ipk`.
+- `build/vpnerd_<ver>_all.ipk` when `UNIVERSAL_IPK=1`.
 - `vpnerd`, `vpnerd-arm64`, `vpnerd-mipsle` in the repo root for manual flashing.
 
 Key environment variables:
@@ -116,6 +123,8 @@ Key environment variables:
 | `INIT_NAME` | Name of init script under `/opt/etc/init.d`. | `S95vpnerd` |
 | `UPX_ARGS` | Arguments passed to `upx`. | `--best` |
 | `DEFAULT_OPKG_ARCH` | Default opkg architecture if spec does not include `:arch`. | *(empty)* |
+| `UNIVERSAL_IPK` | When set, also emit a single `*_all.ipk` that bundles binaries for all `ARCH_LIST` entries. | *(empty)* |
+| `UNIVERSAL_ARCH` | Architecture label for the universal package. | `all` |
 | `TAR_FORMAT` | Tar format used when creating `control.tar.gz`, `data.tar.gz`, and the final `.ipk`. Use `ustar` (default) to avoid Pax headers on macOS. | `ustar` |
 
 Tip: run `opkg print-architecture` on the router to see the exact strings (e.g. `aarch64_cortex-a53`). Either set per-entry overrides (`ARCH_LIST="arm64:aarch64_cortex-a53"`) or export `DEFAULT_OPKG_ARCH=aarch64_cortex-a53` before invoking `make.sh`.

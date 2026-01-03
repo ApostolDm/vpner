@@ -77,6 +77,14 @@ unix: "/tmp/vpner.sock"
 ```sh
 ARCH_LIST="arm64:aarch64-3.10 mipsle:mipsel_24kc" ./make.sh
 ```
+
+Универсальный пакет (один `.ipk` с несколькими архитектурами):
+
+```sh
+ARCH_LIST="arm64:aarch64-3.10 mipsle:mipsel_24kc mips:mips_24kc" UNIVERSAL_IPK=1 ./make.sh
+```
+
+При включённом `UNIVERSAL_IPK=1` дополнительно создаётся `build/vpnerd_<версия>_all.ipk`, содержащий бинарники для всех `ARCH_LIST`.
 Переменные окружения (`INSTALL_PREFIX`, `DEFAULT_OPKG_ARCH`, `UPX_ARGS` и др.) описаны в основном README.
 
 ## CI / Releases

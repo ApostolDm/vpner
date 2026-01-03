@@ -12,6 +12,8 @@ OPKG_DEPENDS=${OPKG_DEPENDS:-"xray-core, ipset, iptables"}
 INIT_NAME=${INIT_NAME:-S95vpnerd}
 UPX_ARGS=${UPX_ARGS:---best}
 DEFAULT_OPKG_ARCH=${DEFAULT_OPKG_ARCH:-}
+UNIVERSAL_IPK=${UNIVERSAL_IPK:-}
+UNIVERSAL_ARCH=${UNIVERSAL_ARCH:-all}
 TAR_BIN=${TAR_BIN:-tar}
 TAR_FORMAT=${TAR_FORMAT:-ustar}
 DEFAULT_BIN_OUT=""
@@ -35,6 +37,54 @@ INIT="__INSTALL_PREFIX__/etc/init.d/__INIT_NAME__"
 mkdir -p "$VP_ROOT" "__INSTALL_PREFIX__/var/run"
 if [ ! -f "$CONF" ] && [ -f "$EXAMPLE" ]; then
   cp "$EXAMPLE" "$CONF"
+fi
+
+if [ -d "$VP_ROOT/bins" ]; then
+  detect_goarch() {
+    arch=$(uname -m 2>/dev/null || echo "")
+    case "$arch" in
+      aarch64|arm64) echo "arm64" ;;
+      armv7*|armv6*|armv5*) echo "arm" ;;
+      mips64el|mips64le) echo "mips64le" ;;
+      mips64) echo "mips64" ;;
+      mipsel) echo "mipsle" ;;
+      mips) echo "mips" ;;
+      x86_64|amd64) echo "amd64" ;;
+      i386|i486|i586|i686) echo "386" ;;
+      *) echo "" ;;
+    esac
+  }
+
+  goarch=$(detect_goarch)
+  if [ -z "$goarch" ] && command -v opkg >/dev/null 2>&1; then
+    opkg_arch=$(opkg print-architecture | awk '($3>max){max=$3; arch=$2} END{print arch}')
+    case "$opkg_arch" in
+      *aarch64*|*arm64*) goarch="arm64" ;;
+      *armv7*|*armv6*|*arm*) goarch="arm" ;;
+      *mipsel*|*mipsle*) goarch="mipsle" ;;
+      *mips64le*|*mips64el*) goarch="mips64le" ;;
+      *mips64*) goarch="mips64" ;;
+      *mips*) goarch="mips" ;;
+      *x86_64*|*amd64*) goarch="amd64" ;;
+      *i386*|*i486*|*i586*|*i686*) goarch="386" ;;
+    esac
+  fi
+
+  if [ -z "$goarch" ]; then
+    echo "Unable to detect architecture for vpnerd binaries" >&2
+    exit 1
+  fi
+
+  BIN="$VP_ROOT/bins/vpnerd-$goarch"
+  HOOK="$VP_ROOT/bins/vpnerhookcli-$goarch"
+  if [ ! -f "$BIN" ] || [ ! -f "$HOOK" ]; then
+    echo "No vpnerd binaries for $goarch in $VP_ROOT/bins" >&2
+    exit 1
+  fi
+
+  cp "$BIN" "$VP_ROOT/vpnerd"
+  cp "$HOOK" "$VP_ROOT/vpnerhookcli"
+  chmod 755 "$VP_ROOT/vpnerd" "$VP_ROOT/vpnerhookcli"
 fi
 if [ -x "$INIT" ]; then
   echo "Use $INIT {start|stop|restart|status} to control vpnerd"
@@ -248,7 +298,76 @@ CONTROL
   log "Package ready: $pkg_file"
 }
 
+build_universal() {
+  local pkgarch=$UNIVERSAL_ARCH
+  local work="$BUILD_DIR/universal"
+  local data_dir="$work/opkg/data"
+  local control_dir="$work/opkg/CONTROL"
+  local pkg_file="$BUILD_DIR/${PKG_NAME}_${PKG_VERSION}_${pkgarch}.ipk"
+  local conf_dir="$data_dir$INSTALL_PREFIX/etc/vpner"
+  local bin_dir="$conf_dir/bins"
+  local init_dir="$data_dir$INSTALL_PREFIX/etc/init.d"
+  local ndm_dir="$data_dir$INSTALL_PREFIX/etc/ndm/netfilter.d"
+
+  cleanup_dir "$work"
+  mkdir -p "$bin_dir" "$data_dir" "$control_dir" "$conf_dir" "$init_dir" "$ndm_dir" "$work/opkg"
+
+  for spec in $ARCH_LIST; do
+    local goarch=${spec%%:*}
+    local bin_src="$ROOT_DIR/$PKG_NAME-$goarch"
+    local hook_src="$ROOT_DIR/vpnerhookcli-$goarch"
+    if [[ ! -f $bin_src || ! -f $hook_src ]]; then
+      log "Missing binaries for $goarch; build them first"
+      exit 1
+    fi
+    install -m755 "$bin_src" "$bin_dir/vpnerd-$goarch"
+    install -m755 "$hook_src" "$bin_dir/vpnerhookcli-$goarch"
+  done
+
+  install -m644 "$ROOT_DIR/vpner.yaml" "$conf_dir/vpner.yaml.example"
+  mkdir -p "$data_dir$INSTALL_PREFIX/var/run"
+
+  local init_tmp="$init_dir/$INIT_NAME"
+  render_init_script > "$init_tmp"
+  apply_placeholders "$init_tmp"
+  chmod 755 "$init_tmp"
+
+  local hook_tmp="$ndm_dir/$HOOK_SCRIPT_NAME"
+  render_ndm_hook > "$hook_tmp"
+  apply_placeholders "$hook_tmp"
+  chmod 755 "$hook_tmp"
+
+  render_postinst > "$control_dir/postinst"
+  apply_placeholders "$control_dir/postinst"
+  chmod 755 "$control_dir/postinst"
+
+  cat <<CONTROL > "$control_dir/control"
+Package: $PKG_NAME
+Version: $PKG_VERSION
+Architecture: $pkgarch
+Maintainer: vpner
+Section: net
+Priority: optional
+Depends: $OPKG_DEPENDS
+Description: VPN orchestrator daemon with DNS + Xray controls
+CONTROL
+
+  log "Creating opkg archive $pkg_file"
+  ( cd "$work/opkg" && \
+    "$TAR_BIN" --format="$TAR_FORMAT" -czf control.tar.gz -C "$control_dir" . && \
+    "$TAR_BIN" --format="$TAR_FORMAT" -czf data.tar.gz -C "$data_dir" . && \
+    printf '2.0\n' > debian-binary && \
+    "$TAR_BIN" --format="$TAR_FORMAT" -czf "$pkg_file" control.tar.gz data.tar.gz debian-binary && \
+    rm -f control.tar.gz data.tar.gz debian-binary )
+
+  log "Universal package ready: $pkg_file"
+}
+
 for spec in $ARCH_LIST; do
   build_arch "$spec"
 done
+
+if [[ -n $UNIVERSAL_IPK ]]; then
+  build_universal
+fi
 patch placeholder

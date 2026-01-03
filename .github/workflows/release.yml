@@ -13,10 +13,9 @@ jobs:
       contents: write
     env:
       ARCH_LIST: |
-        arm64:aarch64-3.10
-        arm64:aarch64-3.10_kn
-        mipsle:mipsel_24kc
-        mipsle:mipsel_74kc
+        arm64:aarch64
+        mipsle:mipsel-3.4
+        mips:mips-3.4
       GOOS: linux
       CLI_TARGETS: "linux/amd64 linux/arm64 darwin/arm64 windows/amd64"
     steps:
