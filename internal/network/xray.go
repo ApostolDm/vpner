@@ -1,6 +1,7 @@
 package network
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -91,91 +92,329 @@ func (x *XrayManager) parseVLESS(link string) (map[string]string, error) {
 		return nil, fmt.Errorf("invalid VLESS URL")
 	}
 	q := u.Query()
+	getAny := func(keys ...string) string {
+		for _, key := range keys {
+			if val := q.Get(key); val != "" {
+				return val
+			}
+		}
+		return ""
+	}
 	port := u.Port()
 	if port == "" {
 		port = "443"
 	}
+	tag := getAny("tag")
+	if tag == "" {
+		tag = u.Fragment
+	}
 	return map[string]string{
-		"uuid":          u.User.Username(),
-		"address":       u.Hostname(),
-		"port":          port,
-		"encryption":    q.Get("encryption"),
-		"security":      q.Get("security"),
-		"type":          q.Get("type"),
-		"headerType":    q.Get("headerType"),
-		"path":          q.Get("path"),
-		"host":          q.Get("host"),
-		"sni":           q.Get("sni"),
-		"fingerprint":   q.Get("fp"),
-		"alpn":          q.Get("alpn"),
-		"allowInsecure": q.Get("allowInsecure"),
-		"flow":          q.Get("flow"),
-		"tag":           q.Get("tag"),
-		"pbk":           q.Get("pbk"),
-		"sid":           q.Get("sid"),
-		"pqv":           q.Get("pqv"),
-		"spx":           q.Get("spx"),
+		"uuid":                u.User.Username(),
+		"address":             u.Hostname(),
+		"port":                port,
+		"encryption":          getAny("encryption"),
+		"security":            getAny("security"),
+		"type":                getAny("type", "transport", "network", "net"),
+		"headerType":          getAny("headerType", "header"),
+		"path":                getAny("path"),
+		"host":                getAny("host"),
+		"sni":                 getAny("sni", "serverName", "peer"),
+		"fingerprint":         getAny("fp", "fingerprint"),
+		"alpn":                getAny("alpn"),
+		"allowInsecure":       getAny("allowInsecure", "insecure"),
+		"flow":                getAny("flow"),
+		"tag":                 tag,
+		"pbk":                 getAny("pbk", "publicKey"),
+		"sid":                 getAny("sid", "shortId"),
+		"pqv":                 getAny("pqv", "mldsa65Verify"),
+		"spx":                 getAny("spx", "spiderX"),
+		"serviceName":         getAny("serviceName", "service"),
+		"authority":           getAny("authority"),
+		"mode":                getAny("mode"),
+		"multiMode":           getAny("multiMode"),
+		"idleTimeout":         getAny("idle_timeout", "idleTimeout"),
+		"healthCheckTimeout":  getAny("health_check_timeout", "healthCheckTimeout"),
+		"permitWithoutStream": getAny("permit_without_stream", "permitWithoutStream"),
+		"initialWindowsSize":  getAny("initial_windows_size", "initialWindowsSize"),
+		"userAgent":           getAny("user_agent", "userAgent"),
+		"seed":                getAny("seed"),
+		"mtu":                 getAny("mtu"),
+		"tti":                 getAny("tti"),
+		"uplinkCapacity":      getAny("uplinkCapacity", "upCap"),
+		"downlinkCapacity":    getAny("downlinkCapacity", "downCap"),
+		"congestion":          getAny("congestion"),
+		"readBufferSize":      getAny("readBufferSize"),
+		"writeBufferSize":     getAny("writeBufferSize"),
+		"acceptProxyProtocol": getAny("acceptProxyProtocol"),
 	}, nil
 }
 
 func decodeBase64String(raw string) ([]byte, error) {
+	raw = strings.TrimSpace(raw)
 	if data, err := base64.StdEncoding.DecodeString(raw); err == nil {
 		return data, nil
 	}
 	if data, err := base64.RawStdEncoding.DecodeString(raw); err == nil {
 		return data, nil
 	}
+	if data, err := base64.URLEncoding.DecodeString(raw); err == nil {
+		return data, nil
+	}
+	if data, err := base64.RawURLEncoding.DecodeString(raw); err == nil {
+		return data, nil
+	}
 	return nil, fmt.Errorf("invalid base64 payload")
 }
 
-func (x *XrayManager) parseVMESS(link string) (*VMessConfig, error) {
+func decodeJSONMap(raw []byte) (map[string]interface{}, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var payload map[string]interface{}
+	if err := dec.Decode(&payload); err != nil {
+		return nil, err
+	}
+	return payload, nil
+}
+
+func stringifyJSONValue(val interface{}) string {
+	switch v := val.(type) {
+	case string:
+		return v
+	case json.Number:
+		return v.String()
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	case bool:
+		return strconv.FormatBool(v)
+	case []string:
+		return strings.Join(v, ",")
+	case []interface{}:
+		parts := make([]string, 0, len(v))
+		for _, item := range v {
+			if s := stringifyJSONValue(item); s != "" {
+				parts = append(parts, s)
+			}
+		}
+		return strings.Join(parts, ",")
+	default:
+		return ""
+	}
+}
+
+func getJSONValue(payload map[string]interface{}, keys ...string) string {
+	for _, key := range keys {
+		val, ok := payload[key]
+		if !ok || val == nil {
+			continue
+		}
+		if s := stringifyJSONValue(val); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+func (x *XrayManager) parseVMESS(link string) (map[string]string, error) {
 	raw := strings.TrimPrefix(link, "vmess://")
 	decoded, err := decodeBase64String(raw)
 	if err != nil {
 		return nil, fmt.Errorf("invalid base64: %w", err)
 	}
-	var cfg VMessConfig
-	if err := json.Unmarshal(decoded, &cfg); err != nil {
+	payload, err := decodeJSONMap(decoded)
+	if err != nil {
 		return nil, fmt.Errorf("invalid VMess JSON: %w", err)
 	}
-	return &cfg, nil
+
+	tag := getJSONValue(payload, "ps", "remark", "remarks", "name")
+	address := getJSONValue(payload, "add", "address", "server")
+	port := getJSONValue(payload, "port", "serverPort")
+	uuid := getJSONValue(payload, "id", "uuid")
+	aid := getJSONValue(payload, "aid", "alterId")
+	cipher := getJSONValue(payload, "scy", "security")
+	network := strings.ToLower(getJSONValue(payload, "net", "network"))
+	headerType := getJSONValue(payload, "type")
+	if network == "" {
+		switch strings.ToLower(headerType) {
+		case "tcp", "ws", "websocket", "grpc", "kcp", "mkcp", "httpupgrade", "xhttp", "splithttp":
+			network = strings.ToLower(headerType)
+			headerType = ""
+		}
+	}
+	tlsVal := strings.ToLower(getJSONValue(payload, "tls"))
+	streamSecurity := ""
+	if tlsVal != "" && tlsVal != "none" {
+		streamSecurity = tlsVal
+	}
+	if streamSecurity == "" {
+		switch strings.ToLower(cipher) {
+		case "tls", "reality", "xtls":
+			streamSecurity = strings.ToLower(cipher)
+			cipher = ""
+		}
+	}
+
+	return map[string]string{
+		"tag":                 tag,
+		"address":             address,
+		"port":                port,
+		"uuid":                uuid,
+		"aid":                 aid,
+		"cipher":              cipher,
+		"type":                network,
+		"headerType":          headerType,
+		"host":                getJSONValue(payload, "host"),
+		"path":                getJSONValue(payload, "path"),
+		"sni":                 getJSONValue(payload, "sni", "serverName", "peer"),
+		"fingerprint":         getJSONValue(payload, "fp", "fingerprint"),
+		"alpn":                getJSONValue(payload, "alpn"),
+		"allowInsecure":       getJSONValue(payload, "allowInsecure", "insecure"),
+		"security":            streamSecurity,
+		"pbk":                 getJSONValue(payload, "pbk", "publicKey"),
+		"sid":                 getJSONValue(payload, "sid", "shortId"),
+		"pqv":                 getJSONValue(payload, "pqv", "mldsa65Verify"),
+		"spx":                 getJSONValue(payload, "spx", "spiderX"),
+		"serviceName":         getJSONValue(payload, "serviceName", "service"),
+		"authority":           getJSONValue(payload, "authority"),
+		"mode":                getJSONValue(payload, "mode"),
+		"multiMode":           getJSONValue(payload, "multiMode"),
+		"idleTimeout":         getJSONValue(payload, "idle_timeout", "idleTimeout"),
+		"healthCheckTimeout":  getJSONValue(payload, "health_check_timeout", "healthCheckTimeout"),
+		"permitWithoutStream": getJSONValue(payload, "permit_without_stream", "permitWithoutStream"),
+		"initialWindowsSize":  getJSONValue(payload, "initial_windows_size", "initialWindowsSize"),
+		"userAgent":           getJSONValue(payload, "user_agent", "userAgent"),
+		"seed":                getJSONValue(payload, "seed"),
+		"mtu":                 getJSONValue(payload, "mtu"),
+		"tti":                 getJSONValue(payload, "tti"),
+		"uplinkCapacity":      getJSONValue(payload, "uplinkCapacity", "upCap"),
+		"downlinkCapacity":    getJSONValue(payload, "downlinkCapacity", "downCap"),
+		"congestion":          getJSONValue(payload, "congestion"),
+		"readBufferSize":      getJSONValue(payload, "readBufferSize"),
+		"writeBufferSize":     getJSONValue(payload, "writeBufferSize"),
+		"acceptProxyProtocol": getJSONValue(payload, "acceptProxyProtocol"),
+	}, nil
+}
+
+func splitSSUserInfo(raw string) (string, string, error) {
+	parts := strings.SplitN(raw, ":", 2)
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("invalid SS credentials")
+	}
+	method, err := url.PathUnescape(parts[0])
+	if err != nil {
+		return "", "", fmt.Errorf("invalid SS method encoding: %w", err)
+	}
+	password, err := url.PathUnescape(parts[1])
+	if err != nil {
+		return "", "", fmt.Errorf("invalid SS password encoding: %w", err)
+	}
+	return method, password, nil
+}
+
+func splitSSHostPort(raw string) (string, string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", "", fmt.Errorf("invalid SS address section")
+	}
+	if host, port, err := net.SplitHostPort(raw); err == nil {
+		return host, port, nil
+	}
+	if u, err := url.Parse("ss://" + raw); err == nil {
+		if host := u.Hostname(); host != "" && u.Port() != "" {
+			return host, u.Port(), nil
+		}
+	}
+	if strings.Count(raw, ":") == 1 {
+		if idx := strings.LastIndex(raw, ":"); idx != -1 {
+			return raw[:idx], raw[idx+1:], nil
+		}
+	}
+	return "", "", fmt.Errorf("invalid SS address section")
 }
 
 func (x *XrayManager) parseSS(link string) (map[string]string, error) {
 	raw := strings.TrimPrefix(link, "ss://")
-	raw = strings.SplitN(raw, "#", 2)[0]
 	raw = strings.TrimSpace(raw)
 
-	payload := raw
-	if !strings.Contains(raw, "@") {
+	tag := ""
+	if idx := strings.Index(raw, "#"); idx != -1 {
+		tagPart := raw[idx+1:]
+		raw = raw[:idx]
+		if decoded, err := url.PathUnescape(tagPart); err == nil {
+			tag = decoded
+		} else {
+			tag = tagPart
+		}
+	}
+
+	query := ""
+	if idx := strings.Index(raw, "?"); idx != -1 {
+		query = raw[idx+1:]
+		raw = raw[:idx]
+	}
+	raw = strings.TrimSpace(raw)
+
+	method := ""
+	password := ""
+	host := ""
+	port := ""
+
+	if strings.Contains(raw, "@") {
+		parts := strings.SplitN(raw, "@", 2)
+		userInfo := parts[0]
+		hostPort := parts[1]
+		if !strings.Contains(userInfo, ":") {
+			decoded, err := decodeBase64String(userInfo)
+			if err != nil {
+				return nil, fmt.Errorf("invalid base64 credentials: %w", err)
+			}
+			userInfo = string(decoded)
+		}
+		var err error
+		method, password, err = splitSSUserInfo(userInfo)
+		if err != nil {
+			return nil, err
+		}
+		host, port, err = splitSSHostPort(hostPort)
+		if err != nil {
+			return nil, err
+		}
+	} else {
 		decoded, err := decodeBase64String(raw)
 		if err != nil {
-			return nil, fmt.Errorf("invalid base64: %w", err)
+			return nil, fmt.Errorf("invalid base64 payload: %w", err)
 		}
-		payload = string(decoded)
+		payload := string(decoded)
+		parts := strings.SplitN(payload, "@", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("unsupported SS link format")
+		}
+		method, password, err = splitSSUserInfo(parts[0])
+		if err != nil {
+			return nil, err
+		}
+		host, port, err = splitSSHostPort(parts[1])
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	parts := strings.Split(payload, "@")
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("unsupported SS link format")
+	cfg := map[string]string{
+		"method":   method,
+		"password": password,
+		"address":  host,
+		"port":     port,
 	}
-
-	auth := strings.SplitN(parts[0], ":", 2)
-	if len(auth) != 2 {
-		return nil, fmt.Errorf("invalid SS credentials")
+	if tag != "" {
+		cfg["tag"] = tag
 	}
-
-	hostPort := strings.Split(parts[1], ":")
-	if len(hostPort) != 2 {
-		return nil, fmt.Errorf("invalid SS address section")
+	if query != "" {
+		if values, err := url.ParseQuery(query); err == nil {
+			if plugin := values.Get("plugin"); plugin != "" {
+				cfg["plugin"] = plugin
+			}
+		}
 	}
-
-	return map[string]string{
-		"method":   auth[0],
-		"password": auth[1],
-		"address":  hostPort[0],
-		"port":     hostPort[1],
-	}, nil
+	return cfg, nil
 }
 
 func (x *XrayManager) buildConfig(link string, port int) (*xrayFile, error) {
@@ -631,49 +870,51 @@ func defaultInbound(port int) map[string]interface{} {
 	}
 }
 
-func generateVLESSConfig(cfg map[string]string, port int) *xrayFile {
-	encryption := cfg["encryption"]
-	if encryption == "" {
-		encryption = "none"
+func splitCSV(raw string) []string {
+	if raw == "" {
+		return nil
 	}
-	tag := cfg["tag"]
-	if tag == "" {
-		tag = "vless-reality"
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, item := range parts {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			out = append(out, item)
+		}
 	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
 
-	outbound := map[string]interface{}{
-		"tag":      tag,
-		"protocol": "vless",
-		"settings": map[string]interface{}{
-			"vnext": []map[string]interface{}{{
-				"address": cfg["address"],
-				"port":    toInt(cfg["port"]),
-				"users":   []map[string]interface{}{buildVLESSUser(cfg, encryption)},
-			}},
-		},
-	}
-
+func buildStreamSettings(cfg map[string]string) map[string]interface{} {
 	stream := map[string]interface{}{}
-	if cfg["type"] != "" {
-		stream["network"] = cfg["type"]
+	network := strings.ToLower(cfg["type"])
+	explicitNetwork := cfg["type"] != ""
+	if network == "" {
+		network = "tcp"
 	}
-	if cfg["security"] != "" {
-		stream["security"] = cfg["security"]
-		switch cfg["security"] {
+	sni := cfg["sni"]
+	if sni == "" {
+		sni = cfg["host"]
+	}
+	security := strings.ToLower(cfg["security"])
+	if security != "" {
+		stream["security"] = security
+		switch security {
 		case "tls":
 			tlsSettings := map[string]interface{}{}
-			if cfg["sni"] != "" {
-				tlsSettings["serverName"] = cfg["sni"]
+			if sni != "" {
+				tlsSettings["serverName"] = sni
 			}
 			if cfg["fingerprint"] != "" {
 				tlsSettings["fingerprint"] = cfg["fingerprint"]
 			}
 			if cfg["alpn"] != "" {
-				alpn := strings.Split(cfg["alpn"], ",")
-				for i := range alpn {
-					alpn[i] = strings.TrimSpace(alpn[i])
+				if alpn := splitCSV(cfg["alpn"]); len(alpn) > 0 {
+					tlsSettings["alpn"] = alpn
 				}
-				tlsSettings["alpn"] = alpn
 			}
 			if cfg["allowInsecure"] != "" {
 				tlsSettings["allowInsecure"] = parseBoolFlag(cfg["allowInsecure"])
@@ -683,8 +924,8 @@ func generateVLESSConfig(cfg map[string]string, port int) *xrayFile {
 			}
 		case "reality":
 			realitySettings := map[string]interface{}{}
-			if cfg["sni"] != "" {
-				realitySettings["serverName"] = cfg["sni"]
+			if sni != "" {
+				realitySettings["serverName"] = sni
 			}
 			if cfg["fingerprint"] != "" {
 				realitySettings["fingerprint"] = cfg["fingerprint"]
@@ -709,12 +950,12 @@ func generateVLESSConfig(cfg map[string]string, port int) *xrayFile {
 		}
 	}
 
-	network := strings.ToLower(cfg["type"])
-	if network == "" {
-		network = "tcp"
+	if explicitNetwork {
+		stream["network"] = network
 	}
 	switch network {
 	case "tcp", "raw":
+		tcpSettings := map[string]interface{}{}
 		headerType := strings.ToLower(cfg["headerType"])
 		if headerType != "" {
 			header := map[string]interface{}{
@@ -727,34 +968,35 @@ func generateVLESSConfig(cfg map[string]string, port int) *xrayFile {
 					path = "/"
 				}
 				if path != "" {
-					uris := []string{}
-					for _, item := range strings.Split(path, ",") {
-						item = strings.TrimSpace(item)
-						if item != "" {
-							uris = append(uris, item)
-						}
-					}
-					if len(uris) > 0 {
+					if uris := splitCSV(path); len(uris) > 0 {
 						request["uri"] = uris
 					}
 				}
 				host := cfg["host"]
 				if host == "" {
-					host = cfg["sni"]
+					host = sni
 				}
 				if host != "" {
+					hostValues := splitCSV(host)
+					if len(hostValues) == 0 {
+						hostValues = []string{host}
+					}
 					request["header"] = []map[string]interface{}{{
 						"name":  "Host",
-						"value": []string{host},
+						"value": hostValues,
 					}}
 				}
 				if len(request) > 0 {
 					header["request"] = request
 				}
 			}
-			stream["tcpSettings"] = map[string]interface{}{
-				"header": header,
-			}
+			tcpSettings["header"] = header
+		}
+		if cfg["acceptProxyProtocol"] != "" {
+			tcpSettings["acceptProxyProtocol"] = parseBoolFlag(cfg["acceptProxyProtocol"])
+		}
+		if len(tcpSettings) > 0 {
+			stream["tcpSettings"] = tcpSettings
 		}
 	case "ws", "websocket":
 		wsSettings := map[string]interface{}{}
@@ -763,19 +1005,166 @@ func generateVLESSConfig(cfg map[string]string, port int) *xrayFile {
 		}
 		host := cfg["host"]
 		if host == "" {
-			host = cfg["sni"]
+			host = sni
 		}
 		if host != "" {
-			wsSettings["headers"] = map[string]string{
-				"Host": host,
-			}
+			wsSettings["host"] = host
+		}
+		if cfg["acceptProxyProtocol"] != "" {
+			wsSettings["acceptProxyProtocol"] = parseBoolFlag(cfg["acceptProxyProtocol"])
 		}
 		if len(wsSettings) > 0 {
 			stream["wsSettings"] = wsSettings
 		}
+	case "grpc":
+		grpcSettings := map[string]interface{}{}
+		serviceName := cfg["serviceName"]
+		if serviceName == "" && cfg["path"] != "" {
+			serviceName = strings.TrimPrefix(cfg["path"], "/")
+		}
+		if serviceName != "" {
+			grpcSettings["serviceName"] = serviceName
+		}
+		authority := cfg["authority"]
+		if authority == "" {
+			authority = cfg["host"]
+		}
+		if authority == "" {
+			authority = sni
+		}
+		if authority != "" {
+			grpcSettings["authority"] = authority
+		}
+		mode := strings.ToLower(cfg["mode"])
+		if mode == "multi" || mode == "multimode" || mode == "multi-mode" {
+			grpcSettings["multiMode"] = true
+		}
+		if cfg["multiMode"] != "" {
+			grpcSettings["multiMode"] = parseBoolFlag(cfg["multiMode"])
+		}
+		if cfg["idleTimeout"] != "" {
+			grpcSettings["idle_timeout"] = toInt(cfg["idleTimeout"])
+		}
+		if cfg["healthCheckTimeout"] != "" {
+			grpcSettings["health_check_timeout"] = toInt(cfg["healthCheckTimeout"])
+		}
+		if cfg["permitWithoutStream"] != "" {
+			grpcSettings["permit_without_stream"] = parseBoolFlag(cfg["permitWithoutStream"])
+		}
+		if cfg["initialWindowsSize"] != "" {
+			grpcSettings["initial_windows_size"] = toInt(cfg["initialWindowsSize"])
+		}
+		if cfg["userAgent"] != "" {
+			grpcSettings["user_agent"] = cfg["userAgent"]
+		}
+		if len(grpcSettings) > 0 {
+			stream["grpcSettings"] = grpcSettings
+		}
+	case "kcp", "mkcp":
+		kcpSettings := map[string]interface{}{}
+		if cfg["mtu"] != "" {
+			kcpSettings["mtu"] = toInt(cfg["mtu"])
+		}
+		if cfg["tti"] != "" {
+			kcpSettings["tti"] = toInt(cfg["tti"])
+		}
+		if cfg["uplinkCapacity"] != "" {
+			kcpSettings["uplinkCapacity"] = toInt(cfg["uplinkCapacity"])
+		}
+		if cfg["downlinkCapacity"] != "" {
+			kcpSettings["downlinkCapacity"] = toInt(cfg["downlinkCapacity"])
+		}
+		if cfg["congestion"] != "" {
+			kcpSettings["congestion"] = parseBoolFlag(cfg["congestion"])
+		}
+		if cfg["readBufferSize"] != "" {
+			kcpSettings["readBufferSize"] = toInt(cfg["readBufferSize"])
+		}
+		if cfg["writeBufferSize"] != "" {
+			kcpSettings["writeBufferSize"] = toInt(cfg["writeBufferSize"])
+		}
+		if cfg["seed"] != "" {
+			kcpSettings["seed"] = cfg["seed"]
+		}
+		kcpHeaderType := strings.ToLower(cfg["headerType"])
+		if kcpHeaderType != "" {
+			kcpSettings["header"] = map[string]interface{}{
+				"type": kcpHeaderType,
+			}
+		}
+		if len(kcpSettings) > 0 {
+			stream["kcpSettings"] = kcpSettings
+		}
+	case "httpupgrade":
+		httpUpgradeSettings := map[string]interface{}{}
+		if cfg["path"] != "" {
+			httpUpgradeSettings["path"] = cfg["path"]
+		}
+		host := cfg["host"]
+		if host == "" {
+			host = sni
+		}
+		if host != "" {
+			httpUpgradeSettings["host"] = host
+		}
+		if cfg["acceptProxyProtocol"] != "" {
+			httpUpgradeSettings["acceptProxyProtocol"] = parseBoolFlag(cfg["acceptProxyProtocol"])
+		}
+		if len(httpUpgradeSettings) > 0 {
+			stream["httpupgradeSettings"] = httpUpgradeSettings
+		}
+	case "xhttp", "splithttp":
+		splitSettings := map[string]interface{}{}
+		if cfg["path"] != "" {
+			splitSettings["path"] = cfg["path"]
+		}
+		host := cfg["host"]
+		if host == "" {
+			host = sni
+		}
+		if host != "" {
+			splitSettings["host"] = host
+		}
+		if cfg["mode"] != "" {
+			splitSettings["mode"] = strings.ToLower(cfg["mode"])
+		}
+		if len(splitSettings) > 0 {
+			stream["splithttpSettings"] = splitSettings
+		}
 	}
 
-	if len(stream) > 0 {
+	if !explicitNetwork && len(stream) > 0 {
+		stream["network"] = network
+	}
+	if len(stream) == 0 {
+		return nil
+	}
+	return stream
+}
+
+func generateVLESSConfig(cfg map[string]string, port int) *xrayFile {
+	encryption := cfg["encryption"]
+	if encryption == "" {
+		encryption = "none"
+	}
+	tag := cfg["tag"]
+	if tag == "" {
+		tag = "vless-reality"
+	}
+
+	outbound := map[string]interface{}{
+		"tag":      tag,
+		"protocol": "vless",
+		"settings": map[string]interface{}{
+			"vnext": []map[string]interface{}{{
+				"address": cfg["address"],
+				"port":    toInt(cfg["port"]),
+				"users":   []map[string]interface{}{buildVLESSUser(cfg, encryption)},
+			}},
+		},
+	}
+
+	if stream := buildStreamSettings(cfg); len(stream) > 0 {
 		outbound["streamSettings"] = stream
 	}
 
@@ -803,50 +1192,35 @@ func buildVLESSUser(cfg map[string]string, encryption string) map[string]interfa
 	return user
 }
 
-func generateVMESSConfig(cfg *VMessConfig, port int) *xrayFile {
+func generateVMESSConfig(cfg map[string]string, port int) *xrayFile {
+	security := cfg["cipher"]
+	if security == "" {
+		security = "auto"
+	}
+	user := map[string]interface{}{
+		"id":       cfg["uuid"],
+		"security": security,
+	}
+	if cfg["aid"] != "" {
+		user["alterId"] = toInt(cfg["aid"])
+	}
+
 	outbound := map[string]interface{}{
 		"protocol": "vmess",
 		"settings": map[string]interface{}{
 			"vnext": []map[string]interface{}{{
-				"address": cfg.Add,
-				"port":    toInt(cfg.Port),
-				"users": []map[string]interface{}{{
-					"id":       cfg.ID,
-					"alterId":  toInt(cfg.Aid),
-					"security": "auto",
-				}},
+				"address": cfg["address"],
+				"port":    toInt(cfg["port"]),
+				"users":   []map[string]interface{}{user},
 			}},
 		},
 	}
+	if tag := cfg["tag"]; tag != "" {
+		outbound["tag"] = tag
+	}
 
-	stream := map[string]interface{}{}
-	if cfg.Net != "" {
-		stream["network"] = cfg.Net
-	}
-	if cfg.TLS != "" {
-		stream["security"] = cfg.TLS
-		if cfg.Host != "" {
-			stream["tlsSettings"] = map[string]interface{}{
-				"serverName": cfg.Host,
-			}
-		}
-	}
-	if len(stream) > 0 {
+	if stream := buildStreamSettings(cfg); len(stream) > 0 {
 		outbound["streamSettings"] = stream
-	}
-
-	if cfg.Path != "" {
-		if streamSettings, ok := outbound["streamSettings"].(map[string]interface{}); ok {
-			streamSettings["wsSettings"] = map[string]interface{}{
-				"path": cfg.Path,
-			}
-		} else {
-			outbound["streamSettings"] = map[string]interface{}{
-				"wsSettings": map[string]interface{}{
-					"path": cfg.Path,
-				},
-			}
-		}
 	}
 
 	return &xrayFile{
@@ -854,8 +1228,8 @@ func generateVMESSConfig(cfg *VMessConfig, port int) *xrayFile {
 		Outbounds: []map[string]interface{}{outbound},
 		Metadata: xrayMetadata{
 			Protocol:   "vmess",
-			RemoteHost: cfg.Add,
-			RemotePort: toInt(cfg.Port),
+			RemoteHost: cfg["address"],
+			RemotePort: toInt(cfg["port"]),
 			SocksPort:  port,
 		},
 	}
@@ -872,6 +1246,9 @@ func generateSSConfig(cfg map[string]string, port int) *xrayFile {
 				"password": cfg["password"],
 			}},
 		},
+	}
+	if tag := cfg["tag"]; tag != "" {
+		outbound["tag"] = tag
 	}
 
 	return &xrayFile{
