@@ -102,6 +102,9 @@ func (x *XrayManager) parseVLESS(link string) (map[string]string, error) {
 		"encryption":    q.Get("encryption"),
 		"security":      q.Get("security"),
 		"type":          q.Get("type"),
+		"headerType":    q.Get("headerType"),
+		"path":          q.Get("path"),
+		"host":          q.Get("host"),
 		"sni":           q.Get("sni"),
 		"fingerprint":   q.Get("fp"),
 		"alpn":          q.Get("alpn"),
@@ -110,6 +113,7 @@ func (x *XrayManager) parseVLESS(link string) (map[string]string, error) {
 		"tag":           q.Get("tag"),
 		"pbk":           q.Get("pbk"),
 		"sid":           q.Get("sid"),
+		"pqv":           q.Get("pqv"),
 		"spx":           q.Get("spx"),
 	}, nil
 }
@@ -691,6 +695,9 @@ func generateVLESSConfig(cfg map[string]string, port int) *xrayFile {
 			if cfg["sid"] != "" {
 				realitySettings["shortId"] = cfg["sid"]
 			}
+			if cfg["pqv"] != "" {
+				realitySettings["mldsa65Verify"] = cfg["pqv"]
+			}
 			spiderX := cfg["spx"]
 			if spiderX == "" {
 				spiderX = "/"
@@ -701,6 +708,73 @@ func generateVLESSConfig(cfg map[string]string, port int) *xrayFile {
 			}
 		}
 	}
+
+	network := strings.ToLower(cfg["type"])
+	if network == "" {
+		network = "tcp"
+	}
+	switch network {
+	case "tcp", "raw":
+		headerType := strings.ToLower(cfg["headerType"])
+		if headerType != "" {
+			header := map[string]interface{}{
+				"type": headerType,
+			}
+			if headerType == "http" {
+				request := map[string]interface{}{}
+				path := cfg["path"]
+				if path == "" {
+					path = "/"
+				}
+				if path != "" {
+					uris := []string{}
+					for _, item := range strings.Split(path, ",") {
+						item = strings.TrimSpace(item)
+						if item != "" {
+							uris = append(uris, item)
+						}
+					}
+					if len(uris) > 0 {
+						request["uri"] = uris
+					}
+				}
+				host := cfg["host"]
+				if host == "" {
+					host = cfg["sni"]
+				}
+				if host != "" {
+					request["header"] = []map[string]interface{}{{
+						"name":  "Host",
+						"value": []string{host},
+					}}
+				}
+				if len(request) > 0 {
+					header["request"] = request
+				}
+			}
+			stream["tcpSettings"] = map[string]interface{}{
+				"header": header,
+			}
+		}
+	case "ws", "websocket":
+		wsSettings := map[string]interface{}{}
+		if cfg["path"] != "" {
+			wsSettings["path"] = cfg["path"]
+		}
+		host := cfg["host"]
+		if host == "" {
+			host = cfg["sni"]
+		}
+		if host != "" {
+			wsSettings["headers"] = map[string]string{
+				"Host": host,
+			}
+		}
+		if len(wsSettings) > 0 {
+			stream["wsSettings"] = wsSettings
+		}
+	}
+
 	if len(stream) > 0 {
 		outbound["streamSettings"] = stream
 	}
