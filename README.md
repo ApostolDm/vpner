@@ -207,9 +207,10 @@ Pattern validation matches `vpnerctl unblock` behavior (`*` at start/end only); 
    ```yaml
    addr: "router-hostname:50051"
    password: "secret123"
+   timeout: "30s"
    # or specify unix: "/tmp/vpner.sock"
    ```
-   Flags `--addr`, `--unix`, `--password`, `-c` override these values per command.
+   Flags `--addr`, `--unix`, `--password`, `--timeout`, `-c` override these values per command (plain numbers are seconds).
 
 ### Key `vpnerctl` commands
 

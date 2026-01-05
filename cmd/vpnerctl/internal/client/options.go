@@ -1,8 +1,12 @@
 package client
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -12,19 +16,24 @@ type Options struct {
 	Addr       string
 	Unix       string
 	Password   string
+	Timeout    string
 }
 
 type ResolvedOptions struct {
 	Addr     string
 	Unix     string
 	Password string
+	Timeout  time.Duration
 }
 
 type fileConfig struct {
 	Addr     string `yaml:"addr"`
 	Unix     string `yaml:"unix"`
 	Password string `yaml:"password"`
+	Timeout  string `yaml:"timeout"`
 }
+
+const defaultTimeout = 5 * time.Second
 
 func ResolveOptions(opts Options) (ResolvedOptions, error) {
 	cfgPath := opts.ConfigPath
@@ -48,6 +57,7 @@ func ResolveOptions(opts Options) (ResolvedOptions, error) {
 		Unix:     opts.Unix,
 		Password: opts.Password,
 	}
+	timeoutValue := strings.TrimSpace(opts.Timeout)
 
 	if resolved.Addr == "" && fileCfg != nil && fileCfg.Addr != "" {
 		resolved.Addr = fileCfg.Addr
@@ -58,12 +68,25 @@ func ResolveOptions(opts Options) (ResolvedOptions, error) {
 	if resolved.Password == "" && fileCfg != nil && fileCfg.Password != "" {
 		resolved.Password = fileCfg.Password
 	}
+	if timeoutValue == "" && fileCfg != nil && strings.TrimSpace(fileCfg.Timeout) != "" {
+		timeoutValue = fileCfg.Timeout
+	}
 
 	if resolved.Addr == "" && resolved.Unix == "" {
 		resolved.Unix = "/tmp/vpner.sock"
 	}
 	if resolved.Addr == "" {
 		resolved.Addr = ":50051"
+	}
+
+	if timeoutValue != "" {
+		timeout, err := parseTimeout(timeoutValue)
+		if err != nil {
+			return ResolvedOptions{}, err
+		}
+		resolved.Timeout = timeout
+	} else {
+		resolved.Timeout = defaultTimeout
 	}
 
 	return resolved, nil
@@ -82,4 +105,25 @@ func readConfig(path string) (*fileConfig, error) {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+func parseTimeout(value string) (time.Duration, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return 0, nil
+	}
+	if dur, err := time.ParseDuration(trimmed); err == nil {
+		if dur < 0 {
+			return 0, fmt.Errorf("timeout must be >= 0")
+		}
+		return dur, nil
+	}
+	seconds, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid timeout %q (use 30s or number of seconds)", trimmed)
+	}
+	if seconds < 0 {
+		return 0, fmt.Errorf("timeout must be >= 0")
+	}
+	return time.Duration(seconds * float64(time.Second)), nil
 }

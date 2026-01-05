@@ -9,7 +9,7 @@ import (
 	grpcpb "github.com/ApostolDmitry/vpner/internal/grpc"
 )
 
-const rpcTimeout = 5 * time.Second
+var rpcTimeout = 120 * time.Second
 
 func withClient(fn func(ctx context.Context, c grpcpb.VpnerManagerClient) error) error {
 	if rt == nil {

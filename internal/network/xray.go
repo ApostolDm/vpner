@@ -541,6 +541,69 @@ func (x *XrayManager) readConfig(path string) (*xrayFile, error) {
 	return &cfg, nil
 }
 
+func ensureVLESSUserEncryption(cfg *xrayFile) bool {
+	changed := false
+	for _, outbound := range cfg.Outbounds {
+		protocol, _ := outbound["protocol"].(string)
+		if protocol != "vless" {
+			continue
+		}
+		settings, ok := outbound["settings"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		vnext, ok := settings["vnext"].([]interface{})
+		if !ok {
+			continue
+		}
+		for _, entry := range vnext {
+			entryMap, ok := entry.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			users, ok := entryMap["users"].([]interface{})
+			if !ok {
+				continue
+			}
+			for _, user := range users {
+				userMap, ok := user.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				value, exists := userMap["encryption"]
+				if !exists || value == nil {
+					userMap["encryption"] = "none"
+					changed = true
+					continue
+				}
+				if v, ok := value.(string); ok && strings.TrimSpace(v) == "" {
+					userMap["encryption"] = "none"
+					changed = true
+				}
+			}
+		}
+	}
+	return changed
+}
+
+func (x *XrayManager) ensureVLESSUserEncryption(path string) error {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+
+	cfg, err := x.readConfig(path)
+	if err != nil {
+		return err
+	}
+	if !ensureVLESSUserEncryption(cfg) {
+		return nil
+	}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
 func (x *XrayManager) CreateXray(link string, autoRun bool) (string, error) {
 	x.mu.Lock()
 	defer x.mu.Unlock()
@@ -596,6 +659,9 @@ func (x *XrayManager) StartXray(ctx context.Context, name string) error {
 		return fmt.Errorf("no such xray config: %s", name)
 	} else if err != nil {
 		return fmt.Errorf("failed to stat config: %w", err)
+	}
+	if err := x.ensureVLESSUserEncryption(configPath); err != nil {
+		return err
 	}
 
 	cmd := exec.CommandContext(ctx, "xray", "run", "-config", configPath)

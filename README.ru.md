@@ -59,8 +59,9 @@
 addr: "router:50051"
 password: "secret"
 unix: "/tmp/vpner.sock"
+timeout: "30s"
 ```
-Ключи `--addr`, `--unix`, `--password`, `--config` переопределяют значения.
+Ключи `--addr`, `--unix`, `--password`, `--timeout`, `--config` переопределяют значения (числа трактуются как секунды).
 
 ### Полезные команды
 

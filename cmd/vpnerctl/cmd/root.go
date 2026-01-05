@@ -12,6 +12,7 @@ var (
 	addr     string
 	unixPath string
 	password string
+	timeout  string
 
 	rt *client.Runtime
 
@@ -27,10 +28,12 @@ var (
 				Addr:       addr,
 				Unix:       unixPath,
 				Password:   password,
+				Timeout:    timeout,
 			})
 			if err != nil {
 				return err
 			}
+			rpcTimeout = opts.Timeout
 			rt, err = client.NewRuntime(opts)
 			return err
 		},
@@ -53,6 +56,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&addr, "addr", "", "vpnerd TCP address")
 	rootCmd.PersistentFlags().StringVar(&unixPath, "unix", "", "vpnerd unix socket")
 	rootCmd.PersistentFlags().StringVarP(&password, "password", "p", "", "password for vpnerd")
+	rootCmd.PersistentFlags().StringVar(&timeout, "timeout", "", "RPC timeout (e.g. 30s or 10 for seconds)")
 
 	rootCmd.AddCommand(dnsCmd)
 	rootCmd.AddCommand(unblockCmd)

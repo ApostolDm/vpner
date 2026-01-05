@@ -51,7 +51,15 @@ func (r *Runtime) Client() grpcpb.VpnerManagerClient {
 }
 
 func (r *Runtime) Context(timeout time.Duration) (context.Context, context.CancelFunc) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	var (
+		ctx    context.Context
+		cancel context.CancelFunc
+	)
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(context.Background(), timeout)
+	} else {
+		ctx, cancel = context.WithCancel(context.Background())
+	}
 	if r.password != "" {
 		ctx = metadata.NewOutgoingContext(ctx, metadata.Pairs("authorization", r.password))
 	}
