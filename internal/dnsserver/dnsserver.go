@@ -1,6 +1,7 @@
 package dnsserver
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"strconv"
@@ -99,8 +100,12 @@ func (s *DNSServer) SetNotifyStartedFunc(fn func()) {
 }
 
 func (s *DNSServer) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
+	var questions string
+	var source string
 	if s.config.Verbose {
-		log.Println("Received new DNS request")
+		questions = formatQuestions(r)
+		source = formatRemoteAddr(w)
+		log.Printf("DNS query from %s: %s", source, questions)
 	}
 
 	s.connSemaphore <- struct{}{}
@@ -121,6 +126,9 @@ func (s *DNSServer) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 		}
 		resp.Id = r.Id
 		_ = w.WriteMsg(resp)
+		if s.config.Verbose {
+			log.Printf("DNS response to %s for %s (custom %s, %s): %s", source, questions, resolverIP, formatRcode(resp), formatAnswers(resp))
+		}
 		if domain != "" {
 			go s.processDomainAnswers(domain, resp)
 		}
@@ -146,6 +154,9 @@ func (s *DNSServer) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	_ = w.WriteMsg(msg)
+	if s.config.Verbose {
+		log.Printf("DNS response to %s for %s (%s): %s", source, questions, formatRcode(msg), formatAnswers(msg))
+	}
 	if domain != "" {
 		go s.processDomainAnswers(domain, msg)
 	}
@@ -181,6 +192,62 @@ func extractDomain(msg *dns.Msg) string {
 		return strings.TrimSuffix(msg.Question[0].Name, ".")
 	}
 	return ""
+}
+
+func formatQuestions(msg *dns.Msg) string {
+	if msg == nil || len(msg.Question) == 0 {
+		return "unknown"
+	}
+	items := make([]string, 0, len(msg.Question))
+	for _, question := range msg.Question {
+		name := strings.TrimSuffix(question.Name, ".")
+		if name == "" {
+			name = "."
+		}
+		qtype := dns.TypeToString[question.Qtype]
+		if qtype == "" {
+			qtype = fmt.Sprintf("TYPE%d", question.Qtype)
+		}
+		items = append(items, fmt.Sprintf("%s %s", name, qtype))
+	}
+	return strings.Join(items, ", ")
+}
+
+func formatAnswers(msg *dns.Msg) string {
+	if msg == nil || len(msg.Answer) == 0 {
+		return "no answers"
+	}
+	answers := make([]string, 0, len(msg.Answer))
+	for _, rr := range msg.Answer {
+		answers = append(answers, rr.String())
+	}
+	return strings.Join(answers, "; ")
+}
+
+func formatRcode(msg *dns.Msg) string {
+	if msg == nil {
+		return "unknown"
+	}
+	code := dns.RcodeToString[msg.Rcode]
+	if code == "" {
+		return fmt.Sprintf("RCODE%d", msg.Rcode)
+	}
+	return code
+}
+
+func formatRemoteAddr(w dns.ResponseWriter) string {
+	if w == nil {
+		return "unknown"
+	}
+	addr := w.RemoteAddr()
+	if addr == nil {
+		return "unknown"
+	}
+	host, _, err := net.SplitHostPort(addr.String())
+	if err == nil && host != "" {
+		return host
+	}
+	return addr.String()
 }
 
 func extractIPs(msg *dns.Msg) []net.IP {
