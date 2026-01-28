@@ -13,7 +13,8 @@ jobs:
       contents: write
     env:
       ARCH_LIST: |
-        arm64:aarch64
+        arm64:aarch64-3.10
+        arm64:aarch64-3.10_kn
         mipsle:mipsel-3.4
         mips:mips-3.4
       GOOS: linux
