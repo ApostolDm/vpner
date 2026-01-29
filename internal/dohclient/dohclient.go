@@ -2,12 +2,14 @@ package dohclient
 
 import (
 	"bytes"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -57,13 +59,62 @@ func (r *Resolver) ForwardQuery(query []byte) ([]byte, error) {
 }
 
 func (r *Resolver) forwardToServer(serverURL string, query []byte) ([]byte, error) {
-	req, err := http.NewRequest("POST", serverURL, bytes.NewBuffer(query))
+	parsed, err := url.Parse(serverURL)
+	if err != nil {
+		return nil, err
+	}
+	host := parsed.Hostname()
+	if host == "" {
+		return nil, fmt.Errorf("invalid DoH server URL: %s", serverURL)
+	}
+	port := parsed.Port()
+	if port == "" {
+		if strings.EqualFold(parsed.Scheme, "http") {
+			port = "80"
+		} else {
+			port = "443"
+		}
+	}
+
+	targetHost := parsed.Host
+	ipHost := host
+	if net.ParseIP(host) == nil {
+		ips, err := r.GetDoHIPs(serverURL)
+		if err != nil {
+			return nil, err
+		}
+		if len(ips) == 0 {
+			return nil, fmt.Errorf("no IPs resolved for DoH host %s", host)
+		}
+		ipHost = ips[0].String()
+	}
+
+	requestURL := *parsed
+	requestURL.Host = net.JoinHostPort(ipHost, port)
+
+	req, err := http.NewRequest("POST", requestURL.String(), bytes.NewBuffer(query))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/dns-message")
+	req.Host = targetHost
 
-	resp, err := r.httpClient.Do(req)
+	transport := &http.Transport{
+		Proxy:               http.ProxyFromEnvironment,
+		DialContext:         (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
+		ForceAttemptHTTP2:   true,
+		TLSHandshakeTimeout: 10 * time.Second,
+	}
+	if strings.EqualFold(parsed.Scheme, "https") && net.ParseIP(host) == nil {
+		transport.TLSClientConfig = &tls.Config{ServerName: host}
+	}
+
+	client := &http.Client{
+		Timeout:   r.httpClient.Timeout,
+		Transport: transport,
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +135,10 @@ func (r *Resolver) GetDoHIPs(dohServerURL string) ([]net.IP, error) {
 		return entry.IPs, nil
 	}
 
-	host := extractHost(dohServerURL)
+	host, err := extractHost(dohServerURL)
+	if err != nil {
+		return nil, err
+	}
 	for _, resolver := range r.config.Resolvers {
 		ips, err := dnsresolver.Query(resolver, host)
 		if err == nil && len(ips) > 0 {
@@ -97,8 +151,16 @@ func (r *Resolver) GetDoHIPs(dohServerURL string) ([]net.IP, error) {
 	return nil, errors.New("failed to resolve DoH IPs")
 }
 
-func extractHost(url string) string {
-	return strings.Split(url, "/")[2]
+func extractHost(rawURL string) (string, error) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return "", err
+	}
+	host := parsed.Hostname()
+	if host == "" {
+		return "", fmt.Errorf("invalid URL host: %s", rawURL)
+	}
+	return host, nil
 }
 
 func (r *Resolver) ResolveDomain(domain string, qtype uint16) ([]net.IP, error) {

@@ -1,12 +1,22 @@
 package dnsresolver
 
 import (
+	"fmt"
 	"net"
+	"strings"
 
 	"github.com/miekg/dns"
 )
 
 func Query(resolver, host string) ([]net.IP, error) {
+	resolver = strings.TrimSpace(resolver)
+	if resolver == "" {
+		return nil, fmt.Errorf("resolver is empty")
+	}
+	if _, _, err := net.SplitHostPort(resolver); err != nil {
+		resolver = net.JoinHostPort(resolver, "53")
+	}
+
 	client := &dns.Client{}
 	msg := &dns.Msg{
 		Question: []dns.Question{
