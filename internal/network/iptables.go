@@ -14,7 +14,7 @@ type vpnRoutingInfo struct {
 	TableID   int
 	Dev       string
 	ChainName string
-	JumpRule  string
+	JumpRules []string
 }
 
 type IptablesManager struct {
@@ -193,25 +193,33 @@ func (i *IptablesManager) addRulesV4(vpnType VPNType, ipsetName string, param in
 
 	chainName := i.buildChainName(ipsetName)
 
-	if err := i.createChain(tableNat, chainName); err != nil {
-		return err
-	}
-	jumpCmd, err := i.linkChainToPrerouting(chainName, iface)
-	if err != nil {
-		return err
-	}
-
 	switch vpnType {
 	case Xray:
+		info, ok := i.routingV4[ipsetName]
+		if !ok {
+			if err := i.createChain(tableNat, chainName); err != nil {
+				return err
+			}
+			info.ChainName = chainName
+		}
+		jumpCmd, err := i.linkChainToPrerouting(chainName, iface)
+		if err != nil {
+			return err
+		}
 		if err := i.addRedirectRules(chainName, ipsetName, param, iface); err != nil {
 			return err
 		}
-		i.routingV4[ipsetName] = vpnRoutingInfo{
-			ChainName: chainName,
-			JumpRule:  jumpCmd,
-		}
+		info.JumpRules = appendJumpRule(info.JumpRules, jumpCmd)
+		i.routingV4[ipsetName] = info
 		return nil
 	case OpenVPN, Wireguard, IKE, SSTP, PPPOE, L2TP, PPTP:
+		if err := i.createChain(tableNat, chainName); err != nil {
+			return err
+		}
+		jumpCmd, err := i.linkChainToPrerouting(chainName, iface)
+		if err != nil {
+			return err
+		}
 		mark, tableID := i.markAndTableFromIPSet(ipsetName)
 		if err := i.addMarkRules(chainName, ipsetName, mark, iface); err != nil {
 			return err
@@ -227,7 +235,7 @@ func (i *IptablesManager) addRulesV4(vpnType VPNType, ipsetName string, param in
 			TableID:   tableID,
 			Dev:       vpnIface,
 			ChainName: chainName,
-			JumpRule:  jumpCmd,
+			JumpRules: []string{jumpCmd},
 		}
 		return nil
 	default:
@@ -242,25 +250,33 @@ func (i *IptablesManager) addRulesV6(vpnType VPNType, ipsetName string, param in
 
 	chainName := i.buildChainName(ipsetName)
 
-	if err := i.createChainV6(tableNat, chainName); err != nil {
-		return err
-	}
-	jumpCmd, err := i.linkChainToPreroutingV6(chainName, iface)
-	if err != nil {
-		return err
-	}
-
 	switch vpnType {
 	case Xray:
+		info, ok := i.routingV6[ipsetName]
+		if !ok {
+			if err := i.createChainV6(tableNat, chainName); err != nil {
+				return err
+			}
+			info.ChainName = chainName
+		}
+		jumpCmd, err := i.linkChainToPreroutingV6(chainName, iface)
+		if err != nil {
+			return err
+		}
 		if err := i.addRedirectRulesV6(chainName, ipsetName, param, iface); err != nil {
 			return err
 		}
-		i.routingV6[ipsetName] = vpnRoutingInfo{
-			ChainName: chainName,
-			JumpRule:  jumpCmd,
-		}
+		info.JumpRules = appendJumpRule(info.JumpRules, jumpCmd)
+		i.routingV6[ipsetName] = info
 		return nil
 	case OpenVPN, Wireguard, IKE, SSTP, PPPOE, L2TP, PPTP:
+		if err := i.createChainV6(tableNat, chainName); err != nil {
+			return err
+		}
+		jumpCmd, err := i.linkChainToPreroutingV6(chainName, iface)
+		if err != nil {
+			return err
+		}
 		mark, tableID := i.markAndTableFromIPSet(ipsetName)
 		if err := i.addMarkRulesV6(chainName, ipsetName, mark, iface); err != nil {
 			return err
@@ -276,7 +292,7 @@ func (i *IptablesManager) addRulesV6(vpnType VPNType, ipsetName string, param in
 			TableID:   tableID,
 			Dev:       vpnIface,
 			ChainName: chainName,
-			JumpRule:  jumpCmd,
+			JumpRules: []string{jumpCmd},
 		}
 		return nil
 	default:
@@ -300,8 +316,11 @@ func (i *IptablesManager) RemoveRulesV4(ipsetName string) error {
 		return fmt.Errorf("no routing info found for ipset: %s", ipsetName)
 	}
 
-	if info.JumpRule != "" {
-		delCmd := strings.Replace(info.JumpRule, "-A ", "-D ", 1)
+	for _, rule := range info.JumpRules {
+		if rule == "" {
+			continue
+		}
+		delCmd := strings.Replace(rule, "-A ", "-D ", 1)
 		_ = i.executeCommand(delCmd)
 	}
 
@@ -436,6 +455,15 @@ func (i *IptablesManager) markAndTableFromIPSet(ipsetName string) (mark int, tab
 	return
 }
 
+func appendJumpRule(rules []string, rule string) []string {
+	for _, existing := range rules {
+		if existing == rule {
+			return rules
+		}
+	}
+	return append(rules, rule)
+}
+
 func (i *IptablesManager) executeCommand(cmd string) error {
 	log.Printf("Executing: %s", cmd)
 	return exec.Command("sh", "-c", cmd).Run()
@@ -447,8 +475,11 @@ func (i *IptablesManager) removeRulesV6(ipsetName string) error {
 		return nil
 	}
 
-	if info.JumpRule != "" {
-		delCmd := strings.Replace(info.JumpRule, "-A ", "-D ", 1)
+	for _, rule := range info.JumpRules {
+		if rule == "" {
+			continue
+		}
+		delCmd := strings.Replace(rule, "-A ", "-D ", 1)
 		_ = i.executeCommand(delCmd)
 	}
 

@@ -33,7 +33,7 @@ func buildRuntimeGraph(cfg config.FullConfig) (*runtimeGraph, error) {
 	}
 
 	iptables := network.NewIptablesManager(cfg.Network.EnableIPv6)
-	xrayRouter := routing.NewXrayRouter(iptables, cfg.Network.LANInterface, cfg.Network.EnableIPv6)
+	xrayRouter := routing.NewXrayRouter(iptables, cfg.Network.LANInterfaces, cfg.Network.EnableIPv6)
 
 	dnsSvc := dnsservice.New(cfg.DNSServer, unblock, resolver)
 	xraySvc := xrayservice.New(xrayMgr)

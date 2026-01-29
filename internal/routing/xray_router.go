@@ -2,6 +2,7 @@ package routing
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/ApostolDmitry/vpner/internal/common/logging"
@@ -9,8 +10,8 @@ import (
 )
 
 type XrayRouter struct {
-	iptables *network.IptablesManager
-	lanIface string
+	iptables  *network.IptablesManager
+	lanIfaces []string
 
 	mu      sync.Mutex
 	applied map[string]appliedState // chain -> applied families
@@ -23,13 +24,21 @@ type appliedState struct {
 	v6 bool
 }
 
-func NewXrayRouter(ipt *network.IptablesManager, lanInterface string, ipv6Enabled bool) *XrayRouter {
-	if lanInterface == "" {
-		lanInterface = "br0"
+func NewXrayRouter(ipt *network.IptablesManager, lanInterfaces []string, ipv6Enabled bool) *XrayRouter {
+	lanIfaces := make([]string, 0, len(lanInterfaces))
+	for _, iface := range lanInterfaces {
+		iface = strings.TrimSpace(iface)
+		if iface == "" {
+			continue
+		}
+		lanIfaces = append(lanIfaces, iface)
+	}
+	if len(lanIfaces) == 0 {
+		lanIfaces = []string{"br0"}
 	}
 	return &XrayRouter{
 		iptables:    ipt,
-		lanIface:    lanInterface,
+		lanIfaces:   lanIfaces,
 		applied:     make(map[string]appliedState),
 		ipv6Enabled: ipv6Enabled,
 	}
@@ -40,7 +49,7 @@ func (r *XrayRouter) Apply(chain string, info network.XrayInfoDetails) error {
 }
 
 func (r *XrayRouter) applyWithFamily(chain string, info network.XrayInfoDetails, applyV4, applyV6 bool) error {
-	if r == nil || r.iptables == nil || r.lanIface == "" {
+	if r == nil || r.iptables == nil {
 		return nil
 	}
 	if info.InboundPort == 0 {
@@ -83,17 +92,19 @@ func (r *XrayRouter) applyWithFamily(chain string, info network.XrayInfoDetails,
 	if !applyV4 && !applyV6 {
 		return nil
 	}
-	if applyV4 {
-		if err := r.iptables.AddRulesV4(network.Xray, ipsetName, info.InboundPort, r.lanIface, ""); err != nil {
-			return err
+	for _, iface := range r.lanIfaces {
+		if applyV4 {
+			if err := r.iptables.AddRulesV4(network.Xray, ipsetName, info.InboundPort, iface, ""); err != nil {
+				return fmt.Errorf("apply v4 rules on %s: %w", iface, err)
+			}
+			state.v4 = true
 		}
-		state.v4 = true
-	}
-	if applyV6 {
-		if err := r.iptables.AddRulesV6(network.Xray, ipsetName, info.InboundPort, r.lanIface, ""); err != nil {
-			return err
+		if applyV6 {
+			if err := r.iptables.AddRulesV6(network.Xray, ipsetName, info.InboundPort, iface, ""); err != nil {
+				return fmt.Errorf("apply v6 rules on %s: %w", iface, err)
+			}
+			state.v6 = true
 		}
-		state.v6 = true
 	}
 	r.applied[chain] = state
 	return nil
