@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/ApostolDmitry/vpner/internal/dnsserver"
 	"github.com/ApostolDmitry/vpner/internal/dohclient"
@@ -31,10 +32,11 @@ type GRPCConfig struct {
 }
 
 type NetworkConfig struct {
-	LANInterface      string `yaml:"lan-interface"`
-	EnableIPv6        bool   `yaml:"enable-ipv6"`
-	IPSetDebug        bool   `yaml:"ipset-debug"`
-	IPSetStaleQueries int    `yaml:"ipset-stale-queries"`
+	LANInterface      string   `yaml:"lan-interface"`
+	LANInterfaces     []string `yaml:"lan-interfaces"`
+	EnableIPv6        bool     `yaml:"enable-ipv6"`
+	IPSetDebug        bool     `yaml:"ipset-debug"`
+	IPSetStaleQueries int      `yaml:"ipset-stale-queries"`
 }
 
 type FullConfig struct {
@@ -72,9 +74,33 @@ func LoadFullConfig(path string) (*FullConfig, error) {
 	if cfg.DoH.CacheTTL == 0 {
 		cfg.DoH.CacheTTL = 300
 	}
-	if cfg.Network.LANInterface == "" {
-		cfg.Network.LANInterface = "br0"
+	cfg.Network.LANInterfaces = normalizeInterfaces(cfg.Network.LANInterfaces, cfg.Network.LANInterface)
+	if len(cfg.Network.LANInterfaces) == 0 {
+		cfg.Network.LANInterfaces = []string{"br0"}
 	}
 
 	return &cfg, nil
+}
+
+func normalizeInterfaces(list []string, fallback string) []string {
+	var result []string
+	seen := make(map[string]struct{})
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		if _, ok := seen[value]; ok {
+			return
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	for _, value := range list {
+		add(value)
+	}
+	if len(result) == 0 {
+		add(fallback)
+	}
+	return result
 }

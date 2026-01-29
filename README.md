@@ -168,7 +168,8 @@ grpc:
 
 unblock-rules-path: "/opt/etc/vpner/vpner_unblock.yaml"
 network:
-  lan-interface: "br0"
+  lan-interfaces:
+    - "br0"
   enable-ipv6: false
   ipset-debug: false
   ipset-stale-queries: 100
@@ -179,7 +180,7 @@ network:
 - `doh` – upstream DoH endpoints plus fallback UDP resolvers. Cache expiry in seconds.
 - `grpc` – server endpoints for `vpnerctl`. TCP listener supports optional password (`authorization` metadata). UNIX socket can be auth-free.
 - `unblock-rules-path` – YAML file storing domain/IP/CIDR rules. Each rule maps to an interface/chain and is synchronized into ipset with comments.
-- `network.lan-interface` – interface used for iptables redirection when applying Xray routes.
+- `network.lan-interfaces` – interfaces used for iptables redirection when applying Xray routes.
 - `network.enable-ipv6` – enable IPv6 ipset/ip6tables/ip -6 routing (default: false).
 - `network.ipset-debug` – log reasons for ipset add/remove decisions (default: false).
 - `network.ipset-stale-queries` – remove IPs from ipset only after they are missing from this many DNS answers (0 = immediate removal; default: 0).

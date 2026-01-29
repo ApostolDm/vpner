@@ -31,7 +31,8 @@ grpc:
 unblock-rules-path: "/opt/etc/vpner/vpner_unblock.yaml"
 
 network:
-  lan-interface: "br0"
+  lan-interfaces:
+    - "br0"
   enable-ipv6: false
   ipset-debug: false
   ipset-stale-queries: 100
