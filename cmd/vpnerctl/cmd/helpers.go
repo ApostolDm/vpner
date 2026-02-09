@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/ApostolDmitry/vpner/internal/common/table"
@@ -18,6 +21,39 @@ func withClient(fn func(ctx context.Context, c grpcpb.VpnerManagerClient) error)
 	ctx, cancel := rt.Context(rpcTimeout)
 	defer cancel()
 	return fn(ctx, rt.Client())
+}
+
+func resolveChainOrPrompt(chain string) (string, error) {
+	chain = strings.TrimSpace(chain)
+	if chain != "" {
+		return chain, nil
+	}
+	if resolvedDefaultChain != "" {
+		return resolvedDefaultChain, nil
+	}
+	if !isTerminal() {
+		return "", fmt.Errorf("--chain is required")
+	}
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Print("Enter chain: ")
+		value, err := reader.ReadString('\n')
+		if err != nil && value == "" {
+			return "", fmt.Errorf("--chain is required")
+		}
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value, nil
+		}
+	}
+}
+
+func isTerminal() bool {
+	info, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return (info.Mode() & os.ModeCharDevice) != 0
 }
 
 func printGenericResponse(resp *grpcpb.GenericResponse) error {

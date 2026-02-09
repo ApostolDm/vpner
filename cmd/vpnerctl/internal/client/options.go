@@ -12,25 +12,28 @@ import (
 )
 
 type Options struct {
-	ConfigPath string
-	Addr       string
-	Unix       string
-	Password   string
-	Timeout    string
+	ConfigPath   string
+	Addr         string
+	Unix         string
+	Password     string
+	Timeout      string
+	DefaultChain string
 }
 
 type ResolvedOptions struct {
-	Addr     string
-	Unix     string
-	Password string
-	Timeout  time.Duration
+	Addr         string
+	Unix         string
+	Password     string
+	Timeout      time.Duration
+	DefaultChain string
 }
 
 type fileConfig struct {
-	Addr     string `yaml:"addr"`
-	Unix     string `yaml:"unix"`
-	Password string `yaml:"password"`
-	Timeout  string `yaml:"timeout"`
+	Addr         string `yaml:"addr"`
+	Unix         string `yaml:"unix"`
+	Password     string `yaml:"password"`
+	Timeout      string `yaml:"timeout"`
+	DefaultChain string `yaml:"default-chain"`
 }
 
 const defaultTimeout = 5 * time.Second
@@ -58,6 +61,7 @@ func ResolveOptions(opts Options) (ResolvedOptions, error) {
 		Password: opts.Password,
 	}
 	timeoutValue := strings.TrimSpace(opts.Timeout)
+	defaultChain := strings.TrimSpace(opts.DefaultChain)
 
 	if resolved.Addr == "" && fileCfg != nil && fileCfg.Addr != "" {
 		resolved.Addr = fileCfg.Addr
@@ -70,6 +74,9 @@ func ResolveOptions(opts Options) (ResolvedOptions, error) {
 	}
 	if timeoutValue == "" && fileCfg != nil && strings.TrimSpace(fileCfg.Timeout) != "" {
 		timeoutValue = fileCfg.Timeout
+	}
+	if defaultChain == "" && fileCfg != nil && strings.TrimSpace(fileCfg.DefaultChain) != "" {
+		defaultChain = fileCfg.DefaultChain
 	}
 
 	if resolved.Addr == "" && resolved.Unix == "" {
@@ -88,6 +95,7 @@ func ResolveOptions(opts Options) (ResolvedOptions, error) {
 	} else {
 		resolved.Timeout = defaultTimeout
 	}
+	resolved.DefaultChain = strings.TrimSpace(defaultChain)
 
 	return resolved, nil
 }

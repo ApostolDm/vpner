@@ -209,9 +209,10 @@ Pattern validation matches `vpnerctl unblock` behavior (`*` at start/end only); 
    addr: "router-hostname:50051"
    password: "secret123"
    timeout: "30s"
+   default-chain: "ovpn_br0"
    # or specify unix: "/tmp/vpner.sock"
    ```
-   Flags `--addr`, `--unix`, `--password`, `--timeout`, `-c` override these values per command (plain numbers are seconds).
+   Flags `--addr`, `--unix`, `--password`, `--timeout`, `--default-chain`, `-c` override these values per command (plain numbers are seconds).
 
 ### Key `vpnerctl` commands
 

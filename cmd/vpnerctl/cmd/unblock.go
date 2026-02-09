@@ -60,8 +60,10 @@ func unblockAddCmd() *cobra.Command {
 		Short: "Add unblock pattern (domain, IP or subnet)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if chain == "" {
-				return fmt.Errorf("--chain is required")
+			var err error
+			chain, err = resolveChainOrPrompt(chain)
+			if err != nil {
+				return err
 			}
 			pattern := args[0]
 			return withClient(func(ctx context.Context, c grpcpb.VpnerManagerClient) error {
@@ -107,8 +109,10 @@ func unblockImportFileCmd() *cobra.Command {
 		Use:   "import-file",
 		Short: "Import unblock patterns from a file",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if chain == "" {
-				return fmt.Errorf("--chain is required")
+			var err error
+			chain, err = resolveChainOrPrompt(chain)
+			if err != nil {
+				return err
 			}
 			patterns, err := readPatternsFromFile(file)
 			if err != nil {

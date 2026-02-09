@@ -60,8 +60,9 @@ addr: "router:50051"
 password: "secret"
 unix: "/tmp/vpner.sock"
 timeout: "30s"
+default-chain: "ovpn_br0"
 ```
-Ключи `--addr`, `--unix`, `--password`, `--timeout`, `--config` переопределяют значения (числа трактуются как секунды).
+Ключи `--addr`, `--unix`, `--password`, `--timeout`, `--default-chain`, `--config` переопределяют значения (числа трактуются как секунды).
 
 ### Полезные команды
 

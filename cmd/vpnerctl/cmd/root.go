@@ -8,13 +8,15 @@ import (
 )
 
 var (
-	cfgPath  string
-	addr     string
-	unixPath string
-	password string
-	timeout  string
+	cfgPath      string
+	addr         string
+	unixPath     string
+	password     string
+	timeout      string
+	defaultChain string
 
-	rt *client.Runtime
+	rt                   *client.Runtime
+	resolvedDefaultChain string
 
 	rootCmd = &cobra.Command{
 		Use:   "vpnerctl",
@@ -24,16 +26,18 @@ var (
 				return nil
 			}
 			opts, err := client.ResolveOptions(client.Options{
-				ConfigPath: cfgPath,
-				Addr:       addr,
-				Unix:       unixPath,
-				Password:   password,
-				Timeout:    timeout,
+				ConfigPath:   cfgPath,
+				Addr:         addr,
+				Unix:         unixPath,
+				Password:     password,
+				Timeout:      timeout,
+				DefaultChain: defaultChain,
 			})
 			if err != nil {
 				return err
 			}
 			rpcTimeout = opts.Timeout
+			resolvedDefaultChain = opts.DefaultChain
 			rt, err = client.NewRuntime(opts)
 			return err
 		},
@@ -57,6 +61,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&unixPath, "unix", "", "vpnerd unix socket")
 	rootCmd.PersistentFlags().StringVarP(&password, "password", "p", "", "password for vpnerd")
 	rootCmd.PersistentFlags().StringVar(&timeout, "timeout", "", "RPC timeout (e.g. 30s or 10 for seconds)")
+	rootCmd.PersistentFlags().StringVar(&defaultChain, "default-chain", "", "default chain for commands that require --chain")
 
 	rootCmd.AddCommand(dnsCmd)
 	rootCmd.AddCommand(unblockCmd)
