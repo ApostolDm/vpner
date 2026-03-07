@@ -16,6 +16,7 @@ type Service struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	running bool
+	done    chan struct{} // closed when server goroutine exits
 	mu      sync.Mutex
 
 	server   *dnsserver.DNSServer
@@ -42,6 +43,7 @@ func (d *Service) Start() error {
 	}
 
 	d.ctx, d.cancel = context.WithCancel(context.Background())
+	d.done = make(chan struct{})
 	d.server = dnsserver.NewDNSServer(d.cfg, d.unblock, d.resolver)
 	started := make(chan struct{})
 	errCh := make(chan error, 1)
@@ -54,6 +56,7 @@ func (d *Service) Start() error {
 	})
 
 	go func() {
+		defer close(d.done)
 		if err := d.server.Run(d.ctx); err != nil {
 			logging.Errorf("DNS server exited: %v", err)
 			select {
@@ -84,14 +87,23 @@ func (d *Service) Start() error {
 
 func (d *Service) Stop() {
 	d.mu.Lock()
-	defer d.mu.Unlock()
-
+	done := d.done
 	if d.cancel != nil {
 		d.cancel()
 		d.cancel = nil
 		logging.Infof("DNS server shutdown requested")
 	}
 	d.running = false
+	d.mu.Unlock()
+
+	// Wait for the server goroutine to fully exit so the port is released.
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			logging.Warnf("DNS server shutdown timed out after 5s")
+		}
+	}
 }
 
 func (d *Service) IsRunning() bool {

@@ -24,7 +24,7 @@ const (
 	ipsetCommentDomainPart = "|domain="
 )
 
-type ipRuleManager struct {
+type IpRuleManager struct {
 	unblockManager    *UnblockManager
 	resolver          *dohclient.Resolver
 	ipv6Enabled       bool
@@ -32,8 +32,8 @@ type ipRuleManager struct {
 	ipsetStaleQueries int
 }
 
-func NewIpRuleManager(unblockManager *UnblockManager, resolver *dohclient.Resolver) *ipRuleManager {
-	return &ipRuleManager{
+func NewIpRuleManager(unblockManager *UnblockManager, resolver *dohclient.Resolver) *IpRuleManager {
+	return &IpRuleManager{
 		unblockManager: unblockManager,
 		resolver:       resolver,
 		ipv6Enabled:    unblockManager != nil && unblockManager.ipv6Enabled,
@@ -47,7 +47,7 @@ func NewIpRuleManager(unblockManager *UnblockManager, resolver *dohclient.Resolv
 	}
 }
 
-func (m *ipRuleManager) CheckIPsInIpset(domain string) error {
+func (m *IpRuleManager) CheckIPsInIpset(domain string) error {
 	vpnType, chainName, rule, ok := m.unblockManager.MatchDomain(domain)
 	if !ok {
 		return nil
@@ -63,7 +63,7 @@ func (m *ipRuleManager) CheckIPsInIpset(domain string) error {
 	return nil
 }
 
-func (m *ipRuleManager) SyncFromAnswers(domain string, ips []net.IP) error {
+func (m *IpRuleManager) SyncFromAnswers(domain string, ips []net.IP) error {
 	if len(ips) == 0 {
 		return nil
 	}
@@ -201,7 +201,7 @@ func isNoRecordsError(err error) bool {
 	return strings.Contains(err.Error(), "no A/AAAA records found")
 }
 
-func (m *ipRuleManager) syncDomainIPs(vpnType, chainName, rule, domain string, qtype uint16, ipv6 bool) error {
+func (m *IpRuleManager) syncDomainIPs(vpnType, chainName, rule, domain string, qtype uint16, ipv6 bool) error {
 	ips, err := m.resolver.ResolveDomain(domain, qtype)
 	if err != nil {
 		if !isNoRecordsError(err) {
@@ -216,7 +216,7 @@ func (m *ipRuleManager) syncDomainIPs(vpnType, chainName, rule, domain string, q
 	return m.syncResolvedIPs(vpnType, chainName, rule, domain, resolved, ipv6)
 }
 
-func (m *ipRuleManager) syncResolvedIPs(vpnType, chainName, rule, domain string, resolved []string, ipv6 bool) error {
+func (m *IpRuleManager) syncResolvedIPs(vpnType, chainName, rule, domain string, resolved []string, ipv6 bool) error {
 	var (
 		ipsetName string
 		family    string

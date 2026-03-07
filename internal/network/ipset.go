@@ -282,6 +282,9 @@ func EnsureIPSet(name, hashtype string, p *Params) error {
 	if cfg.Timeout > 0 {
 		args = append(args, "timeout", strconv.Itoa(cfg.Timeout))
 	}
+	if cfg.WithComments {
+		args = append(args, "comment")
+	}
 	if out, err := exec.Command(ipsetPath, args...).CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to ensure ipset %s: %v (%s)", name, err, out)
 	}
