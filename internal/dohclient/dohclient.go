@@ -2,15 +2,13 @@ package dohclient
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
-	"net/url"
-	"strings"
 	"sync"
 	"time"
 
@@ -19,17 +17,20 @@ import (
 )
 
 type ResolverConfig struct {
-	Servers   []string `yaml:"servers"`
-	Resolvers []string `yaml:"resolvers"`
-	CacheTTL  int      `yaml:"cache-ttl"`
-	Verbose   bool     `yaml:"verbose"`
+	Servers            []string `yaml:"servers"`
+	Resolvers          []string `yaml:"resolvers"`
+	CacheTTL           int      `yaml:"cache-ttl"`
+	Verbose            bool     `yaml:"verbose"`
+	InsecureSkipVerify bool     `yaml:"insecure-skip-verify"`
 }
 
 type Resolver struct {
-	config     ResolverConfig
+	config ResolverConfig
+
 	httpClient *http.Client
-	cache      map[string]cachedEntry
-	cacheMu    sync.RWMutex
+
+	cache   map[string]cachedEntry
+	cacheMu sync.RWMutex
 }
 
 type cachedEntry struct {
@@ -38,163 +39,250 @@ type cachedEntry struct {
 }
 
 func NewResolver(cfg ResolverConfig) *Resolver {
-	return &Resolver{
-		config:     cfg,
-		httpClient: &http.Client{Timeout: 10 * time.Second},
-		cache:      make(map[string]cachedEntry),
-	}
-}
 
-func (r *Resolver) ForwardQuery(query []byte) ([]byte, error) {
-	for _, server := range r.config.Servers {
-		resp, err := r.forwardToServer(server, query)
-		if err == nil {
-			return resp, nil
-		}
-		if r.config.Verbose {
-			log.Printf("DoH server failed: %s, err: %v", server, err)
-		}
+	r := &Resolver{
+		config: cfg,
+		cache:  make(map[string]cachedEntry),
 	}
-	return nil, errors.New("all DoH servers failed")
-}
-
-func (r *Resolver) forwardToServer(serverURL string, query []byte) ([]byte, error) {
-	parsed, err := url.Parse(serverURL)
-	if err != nil {
-		return nil, err
-	}
-	host := parsed.Hostname()
-	if host == "" {
-		return nil, fmt.Errorf("invalid DoH server URL: %s", serverURL)
-	}
-	port := parsed.Port()
-	if port == "" {
-		if strings.EqualFold(parsed.Scheme, "http") {
-			port = "80"
-		} else {
-			port = "443"
-		}
-	}
-
-	targetHost := parsed.Host
-	ipHost := host
-	if net.ParseIP(host) == nil {
-		ips, err := r.GetDoHIPs(serverURL)
-		if err != nil {
-			return nil, err
-		}
-		if len(ips) == 0 {
-			return nil, fmt.Errorf("no IPs resolved for DoH host %s", host)
-		}
-		ipHost = ips[0].String()
-	}
-
-	requestURL := *parsed
-	requestURL.Host = net.JoinHostPort(ipHost, port)
-
-	req, err := http.NewRequest("POST", requestURL.String(), bytes.NewBuffer(query))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/dns-message")
-	req.Host = targetHost
 
 	transport := &http.Transport{
-		Proxy:               http.ProxyFromEnvironment,
-		DialContext:         (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
-		ForceAttemptHTTP2:   true,
-		TLSHandshakeTimeout: 10 * time.Second,
-	}
-	if strings.EqualFold(parsed.Scheme, "https") && net.ParseIP(host) == nil {
-		transport.TLSClientConfig = &tls.Config{ServerName: host}
+		DialContext:           r.dialContext,
+		ForceAttemptHTTP2:     true,
+		DisableCompression:    true,
+		TLSHandshakeTimeout:   5 * time.Second,
+		ResponseHeaderTimeout: 5 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 50,
+		IdleConnTimeout:     60 * time.Second,
 	}
 
-	client := &http.Client{
-		Timeout:   r.httpClient.Timeout,
+	if cfg.InsecureSkipVerify {
+		transport.TLSClientConfig = &tls.Config{
+			InsecureSkipVerify: true,
+		}
+	}
+
+	r.httpClient = &http.Client{
+		Timeout:   8 * time.Second,
 		Transport: transport,
 	}
 
-	resp, err := client.Do(req)
+	return r
+}
+
+func (r *Resolver) dialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+
+	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, err
 	}
+
+	// если уже IP — используем напрямую
+	if net.ParseIP(host) != nil {
+
+		dialer := &net.Dialer{Timeout: 5 * time.Second}
+
+		return dialer.DialContext(ctx, network, addr)
+	}
+
+	ips, err := r.resolveHost(host)
+	if err != nil {
+		return nil, err
+	}
+
+	dialer := &net.Dialer{Timeout: 5 * time.Second}
+
+	var lastErr error
+
+	for _, ip := range ips {
+
+		target := net.JoinHostPort(ip.String(), port)
+
+		conn, err := dialer.DialContext(ctx, network, target)
+
+		if err == nil {
+			return conn, nil
+		}
+
+		lastErr = err
+	}
+
+	return nil, fmt.Errorf("all bootstrap IPs failed for %s: %w", host, lastErr)
+}
+
+func (r *Resolver) ForwardQuery(query []byte) ([]byte, error) {
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	type result struct {
+		resp []byte
+		err  error
+	}
+
+	ch := make(chan result, len(r.config.Servers))
+
+	for _, server := range r.config.Servers {
+
+		server := server
+
+		go func() {
+
+			resp, err := r.forwardToServer(ctx, server, query)
+
+			select {
+
+			case ch <- result{resp, err}:
+
+			case <-ctx.Done():
+			}
+
+		}()
+	}
+
+	var lastErr error
+
+	for i := 0; i < len(r.config.Servers); i++ {
+
+		select {
+
+		case res := <-ch:
+
+			if res.err == nil {
+				return res.resp, nil
+			}
+
+			lastErr = res.err
+
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+
+	if lastErr == nil {
+		lastErr = errors.New("all DoH servers failed")
+	}
+
+	return nil, lastErr
+}
+
+func (r *Resolver) forwardToServer(ctx context.Context, serverURL string, query []byte) ([]byte, error) {
+
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		serverURL,
+		bytes.NewBuffer(query),
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Content-Type", "application/dns-message")
+	req.Header.Set("Accept", "application/dns-message")
+
+	resp, err := r.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP error %d", resp.StatusCode)
+
+		io.Copy(io.Discard, resp.Body)
+
+		return nil, fmt.Errorf("DoH HTTP %d", resp.StatusCode)
 	}
+
 	return io.ReadAll(resp.Body)
 }
 
-func (r *Resolver) GetDoHIPs(dohServerURL string) ([]net.IP, error) {
+func (r *Resolver) resolveHost(host string) ([]net.IP, error) {
+
 	r.cacheMu.RLock()
-	entry, found := r.cache[dohServerURL]
+
+	entry, ok := r.cache[host]
+
 	r.cacheMu.RUnlock()
 
-	if found && time.Since(entry.CachedAt) < time.Duration(r.config.CacheTTL)*time.Second {
+	if ok && time.Since(entry.CachedAt) < time.Duration(r.config.CacheTTL)*time.Second {
+
 		return entry.IPs, nil
 	}
 
-	host, err := extractHost(dohServerURL)
-	if err != nil {
-		return nil, err
-	}
-	for _, resolver := range r.config.Resolvers {
-		ips, err := dnsresolver.Query(resolver, host)
-		if err == nil && len(ips) > 0 {
-			r.cacheMu.Lock()
-			r.cache[dohServerURL] = cachedEntry{IPs: ips, CachedAt: time.Now()}
-			r.cacheMu.Unlock()
-			return ips, nil
-		}
-	}
-	return nil, errors.New("failed to resolve DoH IPs")
-}
+	var lastErr error
 
-func extractHost(rawURL string) (string, error) {
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return "", err
+	for _, resolver := range r.config.Resolvers {
+
+		ips, err := dnsresolver.Query(resolver, host)
+
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		if len(ips) == 0 {
+			continue
+		}
+
+		r.cacheMu.Lock()
+
+		r.cache[host] = cachedEntry{
+			IPs:      ips,
+			CachedAt: time.Now(),
+		}
+
+		r.cacheMu.Unlock()
+
+		return ips, nil
 	}
-	host := parsed.Hostname()
-	if host == "" {
-		return "", fmt.Errorf("invalid URL host: %s", rawURL)
+
+	if lastErr == nil {
+		lastErr = errors.New("bootstrap resolvers failed")
 	}
-	return host, nil
+
+	return nil, lastErr
 }
 
 func (r *Resolver) ResolveDomain(domain string, qtype uint16) ([]net.IP, error) {
+
 	msg := new(dns.Msg)
+
 	msg.SetQuestion(dns.Fqdn(domain), qtype)
 
 	packed, err := msg.Pack()
 	if err != nil {
-		return nil, fmt.Errorf("failed to pack DNS query: %w", err)
+		return nil, err
 	}
 
 	respData, err := r.ForwardQuery(packed)
 	if err != nil {
-		return nil, fmt.Errorf("DoH query failed: %w", err)
+		return nil, err
 	}
 
-	respMsg := new(dns.Msg)
-	if err := respMsg.Unpack(respData); err != nil {
-		return nil, fmt.Errorf("failed to unpack response: %w", err)
+	resp := new(dns.Msg)
+
+	if err := resp.Unpack(respData); err != nil {
+		return nil, err
 	}
 
-	var result []net.IP
-	for _, answer := range respMsg.Answer {
-		switch rr := answer.(type) {
+	var ips []net.IP
+
+	for _, ans := range resp.Answer {
+
+		switch rr := ans.(type) {
+
 		case *dns.A:
-			result = append(result, rr.A)
+			ips = append(ips, rr.A)
+
 		case *dns.AAAA:
-			result = append(result, rr.AAAA)
+			ips = append(ips, rr.AAAA)
+
 		}
 	}
-
-	if len(result) == 0 {
-		return nil, fmt.Errorf("no A/AAAA records found for domain %s", domain)
-	}
-
-	return result, nil
+	return ips, nil
 }
