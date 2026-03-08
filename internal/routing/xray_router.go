@@ -14,7 +14,7 @@ type XrayRouter struct {
 	lanIfaces []string
 
 	mu      sync.Mutex
-	applied map[string]appliedState // chain -> applied families
+	applied map[string]appliedState
 
 	ipv6Enabled bool
 }
@@ -27,11 +27,9 @@ type appliedState struct {
 func NewXrayRouter(ipt *network.IptablesManager, lanInterfaces []string, ipv6Enabled bool) *XrayRouter {
 	lanIfaces := make([]string, 0, len(lanInterfaces))
 	for _, iface := range lanInterfaces {
-		iface = strings.TrimSpace(iface)
-		if iface == "" {
-			continue
+		if iface = strings.TrimSpace(iface); iface != "" {
+			lanIfaces = append(lanIfaces, iface)
 		}
-		lanIfaces = append(lanIfaces, iface)
 	}
 	if len(lanIfaces) == 0 {
 		lanIfaces = []string{"br0"}
@@ -44,12 +42,16 @@ func NewXrayRouter(ipt *network.IptablesManager, lanInterfaces []string, ipv6Ena
 	}
 }
 
+func (r *XrayRouter) ready() bool {
+	return r != nil && r.iptables != nil
+}
+
 func (r *XrayRouter) Apply(chain string, info network.XrayInfoDetails) error {
 	return r.applyWithFamily(chain, info, true, r.ipv6Enabled)
 }
 
 func (r *XrayRouter) applyWithFamily(chain string, info network.XrayInfoDetails, applyV4, applyV6 bool) error {
-	if r == nil || r.iptables == nil {
+	if !r.ready() {
 		return nil
 	}
 	if info.InboundPort == 0 {
@@ -61,6 +63,7 @@ func (r *XrayRouter) applyWithFamily(chain string, info network.XrayInfoDetails,
 	if !applyV4 && !applyV6 {
 		return nil
 	}
+
 	ipsetName, err := network.IpsetName("Xray", chain)
 	if err != nil {
 		return err
@@ -79,6 +82,7 @@ func (r *XrayRouter) applyWithFamily(chain string, info network.XrayInfoDetails,
 			return fmt.Errorf("ensure ipv6 ipset %s: %w", ipsetName6, err)
 		}
 	}
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -92,6 +96,7 @@ func (r *XrayRouter) applyWithFamily(chain string, info network.XrayInfoDetails,
 	if !applyV4 && !applyV6 {
 		return nil
 	}
+
 	for _, iface := range r.lanIfaces {
 		if applyV4 {
 			if err := r.iptables.AddRulesV4(network.Xray, ipsetName, info.InboundPort, iface, ""); err != nil {
@@ -111,7 +116,7 @@ func (r *XrayRouter) applyWithFamily(chain string, info network.XrayInfoDetails,
 }
 
 func (r *XrayRouter) Remove(chain string) error {
-	if r == nil || r.iptables == nil {
+	if !r.ready() {
 		return nil
 	}
 	r.mu.Lock()
@@ -137,7 +142,7 @@ func (r *XrayRouter) Restore(info map[string]network.XrayInfoDetails, isRunning 
 }
 
 func (r *XrayRouter) RestoreFamily(info map[string]network.XrayInfoDetails, isRunning func(string) bool, restoreV4, restoreV6 bool) {
-	if r == nil || r.iptables == nil {
+	if !r.ready() {
 		return
 	}
 	if restoreV6 && !r.ipv6Enabled {
@@ -157,41 +162,36 @@ func (r *XrayRouter) RestoreFamily(info map[string]network.XrayInfoDetails, isRu
 }
 
 func (r *XrayRouter) Shutdown() {
-	if r == nil || r.iptables == nil {
+	r.removeAll()
+}
+
+func (r *XrayRouter) ResetState() {
+	r.removeAll()
+}
+
+func (r *XrayRouter) removeAll() {
+	if !r.ready() {
 		return
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	for name := range r.applied {
 		ipsetName, err := network.IpsetName("Xray", name)
 		if err == nil {
 			_ = r.iptables.RemoveRules(ipsetName)
 		}
-		delete(r.applied, name)
 	}
-}
-
-func (r *XrayRouter) ResetState() {
-	if r == nil || r.iptables == nil {
-		return
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for chain := range r.applied {
-		ipsetName, err := network.IpsetName("Xray", chain)
-		if err == nil {
-			_ = r.iptables.RemoveRules(ipsetName)
-		}
-		delete(r.applied, chain)
-	}
+	r.applied = make(map[string]appliedState)
 }
 
 func (r *XrayRouter) ResetStateFamily(resetV4, resetV6 bool) {
-	if r == nil || r.iptables == nil {
+	if !r.ready() {
 		return
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	for chain, state := range r.applied {
 		ipsetName, err := network.IpsetName("Xray", chain)
 		if err != nil {

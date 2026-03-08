@@ -17,8 +17,47 @@ type vpnRoutingInfo struct {
 	Dev       string
 	ChainName string
 	Table     string // "nat" or "mangle"
-	JumpRules []string
+	JumpRules []jumpRule
 }
+
+type jumpRule struct {
+	Cmd  string   // e.g. "iptables"
+	Args []string // e.g. ["-t", "nat", "-A", "PREROUTING", "-i", "br0", "-j", "VPN_xxx"]
+}
+
+func (j jumpRule) deleteArgs() []string {
+	args := make([]string, len(j.Args))
+	copy(args, j.Args)
+	for idx, a := range args {
+		if a == "-A" {
+			args[idx] = "-D"
+			break
+		}
+	}
+	return args
+}
+
+type ipFamily struct {
+	iptablesCmd     string
+	iptablesSaveCmd string
+	ipFlags         []string // [] for v4, ["-6"] for v6
+	localExceptions []string
+}
+
+var (
+	familyV4 = ipFamily{
+		iptablesCmd:     "iptables",
+		iptablesSaveCmd: "iptables-save",
+		ipFlags:         nil,
+		localExceptions: localExceptionsV4[:],
+	}
+	familyV6 = ipFamily{
+		iptablesCmd:     "ip6tables",
+		iptablesSaveCmd: "ip6tables-save",
+		ipFlags:         []string{"-6"},
+		localExceptions: localExceptionsIPv6[:],
+	}
+)
 
 type IptablesManager struct {
 	mu          sync.Mutex
@@ -50,13 +89,13 @@ const (
 	chainPrerouting = "PREROUTING"
 )
 
-var localExceptions = [...]string{
+var localExceptionsV4 = [...]string{
 	"0.0.0.0/8", "127.0.0.0/8", "10.0.0.0/8",
 	"169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16",
 	"224.0.0.0/4", "240.0.0.0/4",
 }
 
-var localExceptionsV6 = [...]string{
+var localExceptionsIPv6 = [...]string{
 	"::1/128", "fe80::/10", "fc00::/7",
 	"ff00::/8", "2001:db8::/32",
 }
@@ -73,26 +112,62 @@ func validateIface(iface string) error {
 	return nil
 }
 
+func (v VPNType) IsValid() bool {
+	_, ok := validVPNTypes[v]
+	return ok
+}
+
+// --- command execution ---
+
+func run(name string, args ...string) error {
+	log.Printf("Executing: %s %s", name, strings.Join(args, " "))
+	out, err := exec.Command(name, args...).CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg != "" {
+			return fmt.Errorf("%s %s: %w (%s)", name, strings.Join(args, " "), err, msg)
+		}
+		return err
+	}
+	return nil
+}
+
+func commandExists(cmd string) bool {
+	_, err := exec.LookPath(cmd)
+	return err == nil
+}
+
+func isChainExistsError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "Chain already exists") || strings.Contains(msg, "File exists")
+}
+
+// --- constructor & cleanup ---
+
 func NewIptablesManager(ipv6Enabled bool) *IptablesManager {
 	mgr := &IptablesManager{
 		routingV4:   make(map[string]vpnRoutingInfo),
 		routingV6:   make(map[string]vpnRoutingInfo),
 		ipv6Enabled: ipv6Enabled,
 	}
-	mgr.cleanupOldChains("iptables-save", "iptables")
-	mgr.cleanupOldIPRulesAndRoutes(false)
-	if ipv6Enabled || commandExists("ip6tables-save") {
-		mgr.cleanupOldChains("ip6tables-save", "ip6tables")
-		mgr.cleanupOldIPRulesAndRoutes(true)
+	mgr.cleanupFamily(familyV4)
+	if ipv6Enabled || commandExists(familyV6.iptablesSaveCmd) {
+		mgr.cleanupFamily(familyV6)
 	}
 	return mgr
 }
 
-func (i *IptablesManager) cleanupOldIPRulesAndRoutes(ipv6 bool) {
-	args := []string{"rule"}
-	if ipv6 {
-		args = []string{"-6", "rule"}
-	}
+func (i *IptablesManager) cleanupFamily(f ipFamily) {
+	i.cleanupOldChainsInTable(f, tableNat)
+	i.cleanupOldChainsInTable(f, tableMangle)
+	i.cleanupOldIPRulesAndRoutes(f)
+}
+
+func (i *IptablesManager) cleanupOldIPRulesAndRoutes(f ipFamily) {
+	args := append(f.ipFlags, "rule")
 	out, err := exec.Command("ip", args...).Output()
 	if err != nil {
 		log.Printf("Failed to list ip rules: %v", err)
@@ -102,44 +177,34 @@ func (i *IptablesManager) cleanupOldIPRulesAndRoutes(ipv6 bool) {
 	scanner := bufio.NewScanner(strings.NewReader(string(out)))
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.Contains(line, "fwmark") && strings.Contains(line, "lookup") {
-			parts := strings.Fields(line)
-			var fwmark, tableID int
-			for idx, p := range parts {
-				if p == "fwmark" && idx+1 < len(parts) {
-					fmt.Sscanf(parts[idx+1], "%d", &fwmark)
-				}
-				if p == "lookup" && idx+1 < len(parts) {
-					fmt.Sscanf(parts[idx+1], "%d", &tableID)
-				}
+		if !strings.Contains(line, "fwmark") || !strings.Contains(line, "lookup") {
+			continue
+		}
+		parts := strings.Fields(line)
+		var fwmark, tableID int
+		for idx, p := range parts {
+			if p == "fwmark" && idx+1 < len(parts) {
+				fmt.Sscanf(parts[idx+1], "%d", &fwmark)
 			}
-			if fwmark == tableID && fwmark >= 100 && fwmark <= 0xFFF+100 {
-				log.Printf("Cleaning old ip rule: fwmark %d table %d", fwmark, tableID)
-				if ipv6 {
-					_ = i.executeCommand(fmt.Sprintf("ip -6 rule del fwmark %d table %d", fwmark, tableID))
-				} else {
-					_ = i.executeCommand(fmt.Sprintf("ip rule del fwmark %d table %d", fwmark, tableID))
-				}
-				log.Printf("Flushing old route table: %d", tableID)
-				if ipv6 {
-					_ = i.executeCommand(fmt.Sprintf("ip -6 route flush table %d", tableID))
-				} else {
-					_ = i.executeCommand(fmt.Sprintf("ip route flush table %d", tableID))
-				}
+			if p == "lookup" && idx+1 < len(parts) {
+				fmt.Sscanf(parts[idx+1], "%d", &tableID)
 			}
+		}
+		if fwmark == tableID && fwmark >= 100 && fwmark <= 0xFFF+100 {
+			log.Printf("Cleaning old ip rule: fwmark %d table %d", fwmark, tableID)
+			delArgs := append(f.ipFlags, "rule", "del", "fwmark", fmt.Sprintf("%d", fwmark), "table", fmt.Sprintf("%d", tableID))
+			_ = run("ip", delArgs...)
+			log.Printf("Flushing old route table: %d", tableID)
+			flushArgs := append(f.ipFlags, "route", "flush", "table", fmt.Sprintf("%d", tableID))
+			_ = run("ip", flushArgs...)
 		}
 	}
 }
 
-func (i *IptablesManager) cleanupOldChains(iptablesSaveCmd, iptablesCmd string) {
-	i.cleanupOldChainsInTable(iptablesSaveCmd, iptablesCmd, tableNat)
-	i.cleanupOldChainsInTable(iptablesSaveCmd, iptablesCmd, tableMangle)
-}
-
-func (i *IptablesManager) cleanupOldChainsInTable(iptablesSaveCmd, iptablesCmd, table string) {
-	out, err := exec.Command(iptablesSaveCmd, "-t", table).Output()
+func (i *IptablesManager) cleanupOldChainsInTable(f ipFamily, table string) {
+	out, err := exec.Command(f.iptablesSaveCmd, "-t", table).Output()
 	if err != nil {
-		log.Printf("Failed to run %s -t %s: %v", iptablesSaveCmd, table, err)
+		log.Printf("Failed to run %s -t %s: %v", f.iptablesSaveCmd, table, err)
 		return
 	}
 
@@ -162,29 +227,26 @@ func (i *IptablesManager) cleanupOldChainsInTable(iptablesSaveCmd, iptablesCmd, 
 	}
 
 	for _, rule := range jumps {
-		cmd := fmt.Sprintf("%s -t %s %s", iptablesCmd, table, strings.Replace(rule, "-A", "-D", 1))
-		log.Printf("Cleaning %s PREROUTING jump: %s", table, cmd)
-		_ = i.executeCommand(cmd)
+		delRule := strings.Replace(rule, "-A", "-D", 1)
+		args := append([]string{"-t", table}, strings.Fields(delRule)...)
+		log.Printf("Cleaning %s PREROUTING jump: %s %s", table, f.iptablesCmd, strings.Join(args, " "))
+		_ = run(f.iptablesCmd, args...)
 	}
 
-	// Потом удаляем сами цепочки
 	for _, chain := range chains {
 		log.Printf("Cleaning old %s chain: %s", table, chain)
-		_ = i.executeCommand(fmt.Sprintf("%s -t %s -F %s", iptablesCmd, table, chain))
-		_ = i.executeCommand(fmt.Sprintf("%s -t %s -X %s", iptablesCmd, table, chain))
+		_ = run(f.iptablesCmd, "-t", table, "-F", chain)
+		_ = run(f.iptablesCmd, "-t", table, "-X", chain)
 	}
 }
 
-func (v VPNType) IsValid() bool {
-	_, ok := validVPNTypes[v]
-	return ok
-}
+// --- public API (unchanged signatures) ---
 
 func (i *IptablesManager) AddRules(vpnType VPNType, ipsetName string, param int, iface, vpnIface string) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
-	if err := i.addRulesV4(vpnType, ipsetName, param, iface, vpnIface); err != nil {
+	if err := i.addRulesForFamily(familyV4, i.routingV4, vpnType, ipsetName, param, iface, vpnIface); err != nil {
 		return err
 	}
 	if i.ipv6Enabled {
@@ -192,7 +254,7 @@ func (i *IptablesManager) AddRules(vpnType VPNType, ipsetName string, param int,
 		if err != nil {
 			return err
 		}
-		if err := i.addRulesV6(vpnType, ipsetName6, param, iface, vpnIface); err != nil {
+		if err := i.addRulesForFamily(familyV6, i.routingV6, vpnType, ipsetName6, param, iface, vpnIface); err != nil {
 			return err
 		}
 	}
@@ -202,13 +264,12 @@ func (i *IptablesManager) AddRules(vpnType VPNType, ipsetName string, param int,
 func (i *IptablesManager) AddRulesV4(vpnType VPNType, ipsetName string, param int, iface, vpnIface string) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	return i.addRulesV4(vpnType, ipsetName, param, iface, vpnIface)
+	return i.addRulesForFamily(familyV4, i.routingV4, vpnType, ipsetName, param, iface, vpnIface)
 }
 
 func (i *IptablesManager) AddRulesV6(vpnType VPNType, ipsetName string, param int, iface, vpnIface string) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
-
 	if !i.ipv6Enabled {
 		return nil
 	}
@@ -216,192 +277,16 @@ func (i *IptablesManager) AddRulesV6(vpnType VPNType, ipsetName string, param in
 	if err != nil {
 		return err
 	}
-	return i.addRulesV6(vpnType, ipsetName6, param, iface, vpnIface)
-}
-
-func (i *IptablesManager) addRulesV4(vpnType VPNType, ipsetName string, param int, iface, vpnIface string) error {
-	if !vpnType.IsValid() {
-		return fmt.Errorf("unsupported VPN type: %s", vpnType)
-	}
-	if err := validateIface(iface); err != nil {
-		return err
-	}
-	if err := validateIface(vpnIface); err != nil {
-		return err
-	}
-
-	chainName := i.buildChainName(ipsetName)
-
-	switch vpnType {
-	case Xray:
-		info, ok := i.routingV4[ipsetName]
-		if !ok {
-			if err := i.ensureChain(tableNat, chainName); err != nil {
-				return err
-			}
-			info.ChainName = chainName
-			info.Table = tableNat
-		}
-		jumpCmd, err := i.linkChain("iptables", tableNat, chainName, iface)
-		if err != nil {
-			return err
-		}
-		if err := i.addRedirectRules(chainName, ipsetName, param, iface); err != nil {
-			return err
-		}
-		info.JumpRules = appendJumpRule(info.JumpRules, jumpCmd)
-		i.routingV4[ipsetName] = info
-		return nil
-	case OpenVPN, Wireguard, IKE, SSTP, PPPOE, L2TP, PPTP:
-		if err := i.ensureChain(tableMangle, chainName); err != nil {
-			return err
-		}
-		jumpCmd, err := i.linkChain("iptables", tableMangle, chainName, iface)
-		if err != nil {
-			return err
-		}
-		mark, tableID := i.markAndTableFromIPSet(ipsetName)
-		if err := i.addMarkRules(chainName, ipsetName, mark, iface); err != nil {
-			return err
-		}
-		if err := i.addIPRule(mark, tableID); err != nil {
-			return err
-		}
-		if err := i.addIPRoute(tableID, vpnIface); err != nil {
-			return err
-		}
-		i.routingV4[ipsetName] = vpnRoutingInfo{
-			Mark:      mark,
-			TableID:   tableID,
-			Dev:       vpnIface,
-			ChainName: chainName,
-			Table:     tableMangle,
-			JumpRules: []string{jumpCmd},
-		}
-		return nil
-	default:
-		return fmt.Errorf("unsupported VPN type: %s", vpnType)
-	}
-}
-
-func (i *IptablesManager) addRulesV6(vpnType VPNType, ipsetName string, param int, iface, vpnIface string) error {
-	if !vpnType.IsValid() {
-		return fmt.Errorf("unsupported VPN type: %s", vpnType)
-	}
-	if err := validateIface(iface); err != nil {
-		return err
-	}
-	if err := validateIface(vpnIface); err != nil {
-		return err
-	}
-
-	chainName := i.buildChainName(ipsetName)
-
-	switch vpnType {
-	case Xray:
-		info, ok := i.routingV6[ipsetName]
-		if !ok {
-			if err := i.ensureChainV6(tableNat, chainName); err != nil {
-				return err
-			}
-			info.ChainName = chainName
-			info.Table = tableNat
-		}
-		jumpCmd, err := i.linkChain("ip6tables", tableNat, chainName, iface)
-		if err != nil {
-			return err
-		}
-		if err := i.addRedirectRulesV6(chainName, ipsetName, param, iface); err != nil {
-			return err
-		}
-		info.JumpRules = appendJumpRule(info.JumpRules, jumpCmd)
-		i.routingV6[ipsetName] = info
-		return nil
-	case OpenVPN, Wireguard, IKE, SSTP, PPPOE, L2TP, PPTP:
-		if err := i.ensureChainV6(tableMangle, chainName); err != nil {
-			return err
-		}
-		jumpCmd, err := i.linkChain("ip6tables", tableMangle, chainName, iface)
-		if err != nil {
-			return err
-		}
-		mark, tableID := i.markAndTableFromIPSet(ipsetName)
-		if err := i.addMarkRulesV6(chainName, ipsetName, mark, iface); err != nil {
-			return err
-		}
-		if err := i.addIPRuleV6(mark, tableID); err != nil {
-			return err
-		}
-		if err := i.addIPRouteV6(tableID, vpnIface); err != nil {
-			return err
-		}
-		i.routingV6[ipsetName] = vpnRoutingInfo{
-			Mark:      mark,
-			TableID:   tableID,
-			Dev:       vpnIface,
-			ChainName: chainName,
-			Table:     tableMangle,
-			JumpRules: []string{jumpCmd},
-		}
-		return nil
-	default:
-		return fmt.Errorf("unsupported VPN type: %s", vpnType)
-	}
+	return i.addRulesForFamily(familyV6, i.routingV6, vpnType, ipsetName6, param, iface, vpnIface)
 }
 
 func (i *IptablesManager) RemoveRules(ipsetName string) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
-	if err := i.removeRulesV4(ipsetName); err != nil {
+	if err := i.removeRulesForFamily(familyV4, i.routingV4, ipsetName); err != nil {
 		return err
 	}
-	return i.removeRulesV6Outer(ipsetName)
-}
-
-func (i *IptablesManager) RemoveRulesV4(ipsetName string) error {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	return i.removeRulesV4(ipsetName)
-}
-
-func (i *IptablesManager) RemoveRulesV6(ipsetName string) error {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	return i.removeRulesV6Outer(ipsetName)
-}
-
-func (i *IptablesManager) removeRulesV4(ipsetName string) error {
-	info, ok := i.routingV4[ipsetName]
-	if !ok {
-		return fmt.Errorf("no routing info found for ipset: %s", ipsetName)
-	}
-
-	for _, rule := range info.JumpRules {
-		if rule == "" {
-			continue
-		}
-		delCmd := strings.Replace(rule, "-A ", "-D ", 1)
-		_ = i.executeCommand(delCmd)
-	}
-
-	table := info.Table
-	if table == "" {
-		table = tableNat // fallback for old entries without Table field
-	}
-	_ = i.executeCommand(fmt.Sprintf("iptables -t %s -F %s", table, info.ChainName))
-	_ = i.executeCommand(fmt.Sprintf("iptables -t %s -X %s", table, info.ChainName))
-
-	if info.Mark != 0 && info.TableID != 0 {
-		_ = i.executeCommand(fmt.Sprintf("ip rule del fwmark %d table %d", info.Mark, info.TableID))
-		_ = i.executeCommand(fmt.Sprintf("ip route flush table %d", info.TableID))
-	}
-
-	delete(i.routingV4, ipsetName)
-	return nil
-}
-
-func (i *IptablesManager) removeRulesV6Outer(ipsetName string) error {
 	if !i.ipv6Enabled {
 		return nil
 	}
@@ -409,200 +294,233 @@ func (i *IptablesManager) removeRulesV6Outer(ipsetName string) error {
 	if err != nil {
 		return err
 	}
-	return i.removeRulesV6(ipsetName6)
+	return i.removeRulesForFamily(familyV6, i.routingV6, ipsetName6)
 }
 
-func (i *IptablesManager) removeRulesV6(ipsetName string) error {
-	info, ok := i.routingV6[ipsetName]
-	if !ok {
+func (i *IptablesManager) RemoveRulesV4(ipsetName string) error {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return i.removeRulesForFamily(familyV4, i.routingV4, ipsetName)
+}
+
+func (i *IptablesManager) RemoveRulesV6(ipsetName string) error {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if !i.ipv6Enabled {
 		return nil
 	}
+	ipsetName6, err := IpsetName6FromBase(ipsetName)
+	if err != nil {
+		return err
+	}
+	return i.removeRulesForFamily(familyV6, i.routingV6, ipsetName6)
+}
 
-	for _, rule := range info.JumpRules {
-		if rule == "" {
-			continue
+// --- unified add/remove per family ---
+
+func (i *IptablesManager) addRulesForFamily(f ipFamily, routing map[string]vpnRoutingInfo, vpnType VPNType, ipsetName string, param int, iface, vpnIface string) error {
+	if !vpnType.IsValid() {
+		return fmt.Errorf("unsupported VPN type: %s", vpnType)
+	}
+	if err := validateIface(iface); err != nil {
+		return err
+	}
+	if err := validateIface(vpnIface); err != nil {
+		return err
+	}
+
+	chainName := buildChainName(ipsetName)
+
+	switch vpnType {
+	case Xray:
+		info := routing[ipsetName]
+
+		if err := ensureChain(f.iptablesCmd, tableNat, chainName); err != nil {
+			return err
 		}
-		delCmd := strings.Replace(rule, "-A ", "-D ", 1)
-		_ = i.executeCommand(delCmd)
+
+		info.ChainName = chainName
+		info.Table = tableNat
+		
+		jmp, err := linkChain(f.iptablesCmd, tableNat, chainName, iface)
+		if err != nil {
+			return err
+		}
+		if err := addRedirectRules(f.iptablesCmd, chainName, ipsetName, param, iface); err != nil {
+			return err
+		}
+		info.JumpRules = appendJumpRule(info.JumpRules, jmp)
+		routing[ipsetName] = info
+		return nil
+
+	case OpenVPN, Wireguard, IKE, SSTP, PPPOE, L2TP, PPTP:
+		if err := ensureChain(f.iptablesCmd, tableMangle, chainName); err != nil {
+			return err
+		}
+		jmp, err := linkChain(f.iptablesCmd, tableMangle, chainName, iface)
+		if err != nil {
+			return err
+		}
+		mark, tableID := markAndTableFromIPSet(ipsetName)
+		if err := addMarkRules(f, chainName, ipsetName, mark, iface); err != nil {
+			return err
+		}
+		if err := addIPRule(f, mark, tableID); err != nil {
+			return err
+		}
+		if err := addIPRoute(f, tableID, vpnIface); err != nil {
+			return err
+		}
+		routing[ipsetName] = vpnRoutingInfo{
+			Mark:      mark,
+			TableID:   tableID,
+			Dev:       vpnIface,
+			ChainName: chainName,
+			Table:     tableMangle,
+			JumpRules: []jumpRule{jmp},
+		}
+		return nil
+
+	default:
+		return fmt.Errorf("unsupported VPN type: %s", vpnType)
+	}
+}
+
+func (i *IptablesManager) removeRulesForFamily(f ipFamily, routing map[string]vpnRoutingInfo, ipsetName string) error {
+	info, ok := routing[ipsetName]
+	if !ok {
+		if f.iptablesCmd == "iptables" {
+			return fmt.Errorf("no routing info found for ipset: %s", ipsetName)
+		}
+		return nil // v6: silently ignore missing
+	}
+
+	for _, jmp := range info.JumpRules {
+		_ = run(jmp.Cmd, jmp.deleteArgs()...)
 	}
 
 	table := info.Table
 	if table == "" {
 		table = tableNat
 	}
-	_ = i.executeCommand(fmt.Sprintf("ip6tables -t %s -F %s", table, info.ChainName))
-	_ = i.executeCommand(fmt.Sprintf("ip6tables -t %s -X %s", table, info.ChainName))
+	_ = run(f.iptablesCmd, "-t", table, "-F", info.ChainName)
+	_ = run(f.iptablesCmd, "-t", table, "-X", info.ChainName)
 
 	if info.Mark != 0 && info.TableID != 0 {
-		_ = i.executeCommand(fmt.Sprintf("ip -6 rule del fwmark %d table %d", info.Mark, info.TableID))
-		_ = i.executeCommand(fmt.Sprintf("ip -6 route flush table %d", info.TableID))
+		delArgs := append(f.ipFlags, "rule", "del", "fwmark", fmt.Sprintf("%d", info.Mark), "table", fmt.Sprintf("%d", info.TableID))
+		_ = run("ip", delArgs...)
+		flushArgs := append(f.ipFlags, "route", "flush", "table", fmt.Sprintf("%d", info.TableID))
+		_ = run("ip", flushArgs...)
 	}
 
-	delete(i.routingV6, ipsetName)
+	delete(routing, ipsetName)
 	return nil
 }
 
-func (i *IptablesManager) linkChain(iptablesCmd, table, chain, iface string) (string, error) {
-	cmd := fmt.Sprintf("%s -t %s -A %s -i %s -j %s", iptablesCmd, table, chainPrerouting, iface, chain)
-	if err := i.ensureJumpRule(cmd); err != nil {
-		return cmd, err
-	}
-	return cmd, nil
-}
+// --- iptables helpers ---
 
-func (i *IptablesManager) addRedirectRules(chainName, ipsetName string, port int, iface string) error {
-	rules := []string{
-		fmt.Sprintf("-i %s -p tcp -m set --match-set %s dst -j REDIRECT --to-ports %d", iface, ipsetName, port),
-		fmt.Sprintf("-i %s -p udp -m set --match-set %s dst -j REDIRECT --to-ports %d", iface, ipsetName, port),
-	}
-	for _, rule := range rules {
-		cmd := fmt.Sprintf("iptables -t nat -A %s %s", chainName, rule)
-		if err := i.ensureJumpRule(cmd); err != nil {
-			return err
+func ensureChain(iptablesCmd, table, chain string) error {
+	if err := run(iptablesCmd, "-t", table, "-N", chain); err != nil {
+		if isChainExistsError(err) {
+			return nil
 		}
+		return err
 	}
 	return nil
 }
 
-func (i *IptablesManager) addRedirectRulesV6(chainName, ipsetName string, port int, iface string) error {
-	rules := []string{
-		fmt.Sprintf("-i %s -p tcp -m set --match-set %s dst -j REDIRECT --to-ports %d", iface, ipsetName, port),
-		fmt.Sprintf("-i %s -p udp -m set --match-set %s dst -j REDIRECT --to-ports %d", iface, ipsetName, port),
+func linkChain(iptablesCmd, table, chain, iface string) (jumpRule, error) {
+	jmp := jumpRule{
+		Cmd:  iptablesCmd,
+		Args: []string{"-t", table, "-A", chainPrerouting, "-i", iface, "-j", chain},
 	}
-	for _, rule := range rules {
-		cmd := fmt.Sprintf("ip6tables -t nat -A %s %s", chainName, rule)
-		if err := i.ensureJumpRule(cmd); err != nil {
-			return err
+	checkArgs := make([]string, len(jmp.Args))
+	copy(checkArgs, jmp.Args)
+	for idx, a := range checkArgs {
+		if a == "-A" {
+			checkArgs[idx] = "-C"
+			break
 		}
 	}
-	return nil
+	if err := run(iptablesCmd, checkArgs...); err == nil {
+		return jmp, nil
+	}
+	if err := run(iptablesCmd, jmp.Args...); err != nil {
+		return jmp, err
+	}
+	return jmp, nil
 }
 
-func (i *IptablesManager) addMarkRules(chainName, ipsetName string, mark int, iface string) error {
-	for _, cidr := range localExceptions {
-		if err := i.executeCommand(fmt.Sprintf("iptables -t mangle -A %s -i %s -d %s -j RETURN", chainName, iface, cidr)); err != nil {
-			return err
+func addRedirectRules(iptablesCmd, chainName, ipsetName string, port int, iface string) error {
+	for _, proto := range []string{"tcp", "udp"} {
+		args := []string{"-t", "nat", "-A", chainName,
+			"-i", iface, "-p", proto,
+			"-m", "set", "--match-set", ipsetName, "dst",
+			"-j", "REDIRECT", "--to-ports", fmt.Sprintf("%d", port)}
+		checkArgs := make([]string, len(args))
+		copy(checkArgs, args)
+		for idx, a := range checkArgs {
+			if a == "-A" {
+				checkArgs[idx] = "-C"
+				break
+			}
 		}
-	}
-	rules := []string{
-		fmt.Sprintf("-i %s -p tcp -m set --match-set %s dst -j MARK --set-mark %d", iface, ipsetName, mark),
-		fmt.Sprintf("-i %s -p udp -m set --match-set %s dst -j MARK --set-mark %d", iface, ipsetName, mark),
-	}
-	for _, rule := range rules {
-		if err := i.executeCommand(fmt.Sprintf("iptables -t mangle -A %s %s", chainName, rule)); err != nil {
-			return err
+		if err := run(iptablesCmd, checkArgs...); err == nil {
+			continue
 		}
-	}
-	return nil
-}
-
-func (i *IptablesManager) addMarkRulesV6(chainName, ipsetName string, mark int, iface string) error {
-	for _, cidr := range localExceptionsV6 {
-		if err := i.executeCommand(fmt.Sprintf("ip6tables -t mangle -A %s -i %s -d %s -j RETURN", chainName, iface, cidr)); err != nil {
-			return err
-		}
-	}
-	rules := []string{
-		fmt.Sprintf("-i %s -p tcp -m set --match-set %s dst -j MARK --set-mark %d", iface, ipsetName, mark),
-		fmt.Sprintf("-i %s -p udp -m set --match-set %s dst -j MARK --set-mark %d", iface, ipsetName, mark),
-	}
-	for _, rule := range rules {
-		if err := i.executeCommand(fmt.Sprintf("ip6tables -t mangle -A %s %s", chainName, rule)); err != nil {
+		if err := run(iptablesCmd, args...); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (i *IptablesManager) addIPRule(mark, tableID int) error {
-	return i.executeCommand(fmt.Sprintf("ip rule add fwmark %d table %d", mark, tableID))
+func addMarkRules(f ipFamily, chainName, ipsetName string, mark int, iface string) error {
+	for _, cidr := range f.localExceptions {
+		if err := run(f.iptablesCmd, "-t", "mangle", "-A", chainName, "-i", iface, "-d", cidr, "-j", "RETURN"); err != nil {
+			return err
+		}
+	}
+	for _, proto := range []string{"tcp", "udp"} {
+		args := []string{"-t", "mangle", "-A", chainName,
+			"-i", iface, "-p", proto,
+			"-m", "set", "--match-set", ipsetName, "dst",
+			"-j", "MARK", "--set-mark", fmt.Sprintf("%d", mark)}
+		if err := run(f.iptablesCmd, args...); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-func (i *IptablesManager) addIPRuleV6(mark, tableID int) error {
-	return i.executeCommand(fmt.Sprintf("ip -6 rule add fwmark %d table %d", mark, tableID))
+func addIPRule(f ipFamily, mark, tableID int) error {
+	args := append(f.ipFlags, "rule", "add", "fwmark", fmt.Sprintf("%d", mark), "table", fmt.Sprintf("%d", tableID))
+	return run("ip", args...)
 }
 
-func (i *IptablesManager) addIPRoute(tableID int, iface string) error {
-	return i.executeCommand(fmt.Sprintf("ip route add default dev %s table %d", iface, tableID))
+func addIPRoute(f ipFamily, tableID int, iface string) error {
+	args := append(f.ipFlags, "route", "add", "default", "dev", iface, "table", fmt.Sprintf("%d", tableID))
+	return run("ip", args...)
 }
 
-func (i *IptablesManager) addIPRouteV6(tableID int, iface string) error {
-	return i.executeCommand(fmt.Sprintf("ip -6 route add default dev %s table %d", iface, tableID))
-}
+// --- utilities ---
 
-func (i *IptablesManager) buildChainName(ipsetName string) string {
+func buildChainName(ipsetName string) string {
 	hash := adler32.Checksum([]byte(ipsetName))
 	return fmt.Sprintf("VPN_%08x", hash)
 }
 
-func (i *IptablesManager) markAndTableFromIPSet(ipsetName string) (mark int, tableID int) {
+func markAndTableFromIPSet(ipsetName string) (mark int, tableID int) {
 	h := adler32.Checksum([]byte(ipsetName))
-	mark = int(h&0xFFF) + 100
-	tableID = int(h&0xFFF) + 100
-	return
+	id := int(h&0xFFF) + 100
+	return id, id
 }
 
-func appendJumpRule(rules []string, rule string) []string {
+func appendJumpRule(rules []jumpRule, rule jumpRule) []jumpRule {
 	for _, existing := range rules {
-		if existing == rule {
+		if existing.Cmd == rule.Cmd && strings.Join(existing.Args, " ") == strings.Join(rule.Args, " ") {
 			return rules
 		}
 	}
 	return append(rules, rule)
-}
-
-func (i *IptablesManager) ensureChain(table, chain string) error {
-	cmd := fmt.Sprintf("iptables -t %s -N %s", table, chain)
-	if err := i.executeCommand(cmd); err != nil {
-		if isChainExistsError(err) {
-			return nil
-		}
-		return err
-	}
-	return nil
-}
-
-func (i *IptablesManager) ensureChainV6(table, chain string) error {
-	cmd := fmt.Sprintf("ip6tables -t %s -N %s", table, chain)
-	if err := i.executeCommand(cmd); err != nil {
-		if isChainExistsError(err) {
-			return nil
-		}
-		return err
-	}
-	return nil
-}
-
-func (i *IptablesManager) ensureJumpRule(addCmd string) error {
-	checkCmd := strings.Replace(addCmd, "-A ", "-C ", 1)
-	if err := i.executeCommand(checkCmd); err == nil {
-		return nil
-	}
-	return i.executeCommand(addCmd)
-}
-
-func isChainExistsError(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "Chain already exists") || strings.Contains(msg, "File exists")
-}
-
-func (i *IptablesManager) executeCommand(cmd string) error {
-	log.Printf("Executing: %s", cmd)
-	out, err := exec.Command("sh", "-c", cmd).CombinedOutput()
-	if err != nil {
-		msg := strings.TrimSpace(string(out))
-		if msg != "" {
-			return fmt.Errorf("%s: %w (%s)", cmd, err, msg)
-		}
-		return err
-	}
-	return nil
-}
-
-func commandExists(cmd string) bool {
-	_, err := exec.LookPath(cmd)
-	return err == nil
 }
