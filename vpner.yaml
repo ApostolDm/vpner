@@ -34,5 +34,6 @@ network:
   lan-interfaces:
     - "br0"
   enable-ipv6: false
+  enable-tproxy: false
   ipset-debug: false
   ipset-stale-queries: 100

@@ -6,8 +6,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ApostolDmitry/vpner/internal/common/table"
 	grpcpb "github.com/ApostolDmitry/vpner/internal/grpc"
+	"github.com/ApostolDmitry/vpner/internal/table"
 )
 
 var xrayCmd = &cobra.Command{

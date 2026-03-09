@@ -7,8 +7,9 @@ import (
 	"os"
 	"sync"
 
-	"github.com/ApostolDmitry/vpner/internal/common/logging"
-	"github.com/ApostolDmitry/vpner/internal/common/patterns"
+	"github.com/ApostolDmitry/vpner/internal/logging"
+	"github.com/ApostolDmitry/vpner/internal/patterns"
+	vpntypes "github.com/ApostolDmitry/vpner/internal/vpn"
 	"gopkg.in/yaml.v3"
 )
 
@@ -17,52 +18,84 @@ const defaultRulesFile = "/opt/etc/vpner/vpner_unblock.yaml"
 type VPNRuleSet map[string][]string
 
 type VPNRulesConfig struct {
-	Xray      VPNRuleSet `yaml:"Xray"`
-	OpenVPN   VPNRuleSet `yaml:"OpenVPN"`
-	Wireguard VPNRuleSet `yaml:"Wireguard"`
-	IKE       VPNRuleSet `yaml:"IKE"`
-	SSTP      VPNRuleSet `yaml:"SSTP"`
-	PPPOE     VPNRuleSet `yaml:"PPPOE"`
-	L2TP      VPNRuleSet `yaml:"L2TP"`
-	PPTP      VPNRuleSet `yaml:"PPTP"`
+	Rules map[string]VPNRuleSet `yaml:",inline"`
 }
 
-func (v *VPNRulesConfig) RuleMap() map[string]*VPNRuleSet {
-	ensure := func(set *VPNRuleSet) *VPNRuleSet {
-		if *set == nil {
-			*set = make(VPNRuleSet)
-		}
-		return set
-	}
+func newVPNRulesConfig() *VPNRulesConfig {
+	return &VPNRulesConfig{Rules: make(map[string]VPNRuleSet)}
+}
 
-	return map[string]*VPNRuleSet{
-		"Xray":      ensure(&v.Xray),
-		"OpenVPN":   ensure(&v.OpenVPN),
-		"Wireguard": ensure(&v.Wireguard),
-		"IKE":       ensure(&v.IKE),
-		"SSTP":      ensure(&v.SSTP),
-		"PPPOE":     ensure(&v.PPPOE),
-		"L2TP":      ensure(&v.L2TP),
-		"PPTP":      ensure(&v.PPTP),
+func (v *VPNRulesConfig) ensure() {
+	if v == nil {
+		return
 	}
+	if v.Rules == nil {
+		v.Rules = make(map[string]VPNRuleSet)
+	}
+}
+
+func (v *VPNRulesConfig) ensureSet(vpnType string) (VPNRuleSet, bool) {
+	if !vpntypes.IsKnown(vpnType) {
+		return nil, false
+	}
+	v.ensure()
+	set, ok := v.Rules[vpnType]
+	if !ok || set == nil {
+		set = make(VPNRuleSet)
+		v.Rules[vpnType] = set
+	}
+	return set, true
+}
+
+func (v *VPNRulesConfig) lookupSet(vpnType string) (VPNRuleSet, bool) {
+	if v == nil {
+		return nil, false
+	}
+	v.ensure()
+	set, ok := v.Rules[vpnType]
+	if !ok || set == nil {
+		return nil, false
+	}
+	return set, true
+}
+
+func (v *VPNRulesConfig) Clone() *VPNRulesConfig {
+	if v == nil {
+		return newVPNRulesConfig()
+	}
+	v.ensure()
+	out := newVPNRulesConfig()
+	for vpnType, set := range v.Rules {
+		cloneSet := make(VPNRuleSet, len(set))
+		for chainName, rules := range set {
+			cloneSet[chainName] = append([]string(nil), rules...)
+		}
+		out.Rules[vpnType] = cloneSet
+	}
+	return out
 }
 
 type UnblockManager struct {
 	FilePath          string
 	cachedConf        *VPNRulesConfig
+	registry          *IPSetRegistry
 	mu                sync.RWMutex
 	ipv6Enabled       bool
 	ipsetDebug        bool
 	ipsetStaleQueries int
 }
 
-func NewUnblockManager(path string, ipv6Enabled bool, ipsetDebug bool, ipsetStaleQueries int) *UnblockManager {
+func NewUnblockManager(path string, ipv6Enabled bool, ipsetDebug bool, ipsetStaleQueries int, registry *IPSetRegistry) *UnblockManager {
 	if path == "" {
 		path = defaultRulesFile
 	}
+	if registry == nil {
+		registry = NewIPSetRegistry()
+	}
 	return &UnblockManager{
 		FilePath:          path,
-		cachedConf:        &VPNRulesConfig{},
+		cachedConf:        newVPNRulesConfig(),
+		registry:          registry,
 		ipv6Enabled:       ipv6Enabled,
 		ipsetDebug:        ipsetDebug,
 		ipsetStaleQueries: ipsetStaleQueries,
@@ -92,11 +125,12 @@ func (m *UnblockManager) loadFromFile() (*VPNRulesConfig, error) {
 	}
 	defer file.Close()
 
-	var config VPNRulesConfig
-	if err := yaml.NewDecoder(file).Decode(&config); err != nil && err != io.EOF {
+	config := newVPNRulesConfig()
+	if err := yaml.NewDecoder(file).Decode(config); err != nil && err != io.EOF {
 		return nil, fmt.Errorf("failed to parse YAML: %w", err)
 	}
-	return &config, nil
+	config.ensure()
+	return config, nil
 }
 
 func (m *UnblockManager) writeConfig() error {
@@ -116,14 +150,14 @@ func (m *UnblockManager) AddRule(vpnType, chainName, pattern string) error {
 	if isStaticPattern(pattern) && isIPv6Pattern(pattern) && !m.ipv6Enabled {
 		return fmt.Errorf("ipv6 support is disabled")
 	}
+
 	m.mu.Lock()
-	rules := m.cachedConf.RuleMap()
-	set, ok := rules[vpnType]
+	set, ok := m.cachedConf.ensureSet(vpnType)
 	if !ok {
 		m.mu.Unlock()
 		return fmt.Errorf("unknown VPN type: %s", vpnType)
 	}
-	(*set)[chainName] = append((*set)[chainName], pattern)
+	set[chainName] = append(set[chainName], pattern)
 	err := m.writeConfig()
 	m.mu.Unlock()
 	if err != nil {
@@ -137,14 +171,13 @@ func (m *UnblockManager) AddRule(vpnType, chainName, pattern string) error {
 
 func (m *UnblockManager) DelRule(vpnType, chainName, pattern string) error {
 	m.mu.Lock()
-	rules := m.cachedConf.RuleMap()
-	set, ok := rules[vpnType]
-	if !ok || *set == nil {
+	set, ok := m.cachedConf.lookupSet(vpnType)
+	if !ok {
 		m.mu.Unlock()
 		return fmt.Errorf("unknown or empty VPN type: %s", vpnType)
 	}
 
-	ruleList, exists := (*set)[chainName]
+	ruleList, exists := set[chainName]
 	if !exists {
 		m.mu.Unlock()
 		return fmt.Errorf("no rules found for chain: %s", chainName)
@@ -167,9 +200,12 @@ func (m *UnblockManager) DelRule(vpnType, chainName, pattern string) error {
 	}
 
 	if len(newList) == 0 {
-		delete(*set, chainName)
+		delete(set, chainName)
 	} else {
-		(*set)[chainName] = newList
+		set[chainName] = newList
+	}
+	if len(set) == 0 {
+		delete(m.cachedConf.Rules, vpnType)
 	}
 
 	err := m.writeConfig()
@@ -180,7 +216,7 @@ func (m *UnblockManager) DelRule(vpnType, chainName, pattern string) error {
 	if isStatic {
 		return m.applyStaticEntry(vpnType, chainName, pattern, false)
 	}
-	if err := cleanupDomainEntries(vpnType, chainName, pattern, m.ipv6Enabled, m.ipsetDebug); err != nil {
+	if err := cleanupDomainEntries(m.registry, vpnType, chainName, pattern, m.ipv6Enabled, m.ipsetDebug); err != nil {
 		logging.Warnf("cleanup ipset entries for %s/%s failed: %v", vpnType, chainName, err)
 	}
 	return nil
@@ -188,18 +224,21 @@ func (m *UnblockManager) DelRule(vpnType, chainName, pattern string) error {
 
 func (m *UnblockManager) DelChain(vpnType, chainName string) error {
 	m.mu.Lock()
-	rules := m.cachedConf.RuleMap()
-	set, ok := rules[vpnType]
-	if !ok || *set == nil {
+	set, ok := m.cachedConf.lookupSet(vpnType)
+	if !ok {
 		m.mu.Unlock()
 		return fmt.Errorf("unknown or empty VPN type: %s", vpnType)
 	}
-	entries, exists := (*set)[chainName]
+	entries, exists := set[chainName]
 	if !exists {
 		m.mu.Unlock()
 		return fmt.Errorf("chain not found: %s", chainName)
 	}
-	delete(*set, chainName)
+	delete(set, chainName)
+	if len(set) == 0 {
+		delete(m.cachedConf.Rules, vpnType)
+	}
+	entries = append([]string(nil), entries...)
 	err := m.writeConfig()
 	m.mu.Unlock()
 	if err != nil {
@@ -211,7 +250,7 @@ func (m *UnblockManager) DelChain(vpnType, chainName string) error {
 				return err
 			}
 		} else {
-			if err := cleanupDomainEntries(vpnType, chainName, entry, m.ipv6Enabled, m.ipsetDebug); err != nil {
+			if err := cleanupDomainEntries(m.registry, vpnType, chainName, entry, m.ipv6Enabled, m.ipsetDebug); err != nil {
 				logging.Warnf("cleanup ipset entries for %s/%s failed: %v", vpnType, chainName, err)
 			}
 		}
@@ -223,30 +262,25 @@ func (m *UnblockManager) GetRules(vpnType, chainName string) ([]string, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	data := m.cachedConf
-	rules := data.RuleMap()
-	set, ok := rules[vpnType]
-	if !ok || *set == nil {
+	set, ok := m.cachedConf.lookupSet(vpnType)
+	if !ok {
 		return nil, fmt.Errorf("unknown VPN type: %s", vpnType)
 	}
-	return (*set)[chainName], nil
+	return append([]string(nil), set[chainName]...), nil
 }
 
 func (m *UnblockManager) GetAllRules() (*VPNRulesConfig, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.cachedConf, nil
+	return m.cachedConf.Clone(), nil
 }
 
 func (m *UnblockManager) MatchDomain(domain string) (string, string, string, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	for vpnType, set := range m.cachedConf.RuleMap() {
-		if *set == nil {
-			continue
-		}
-		for chain, rules := range *set {
+	for vpnType, set := range m.cachedConf.Rules {
+		for chain, rules := range set {
 			for _, pattern := range rules {
 				if patterns.Match(pattern, domain) {
 					return vpnType, chain, pattern, true
@@ -255,6 +289,21 @@ func (m *UnblockManager) MatchDomain(domain string) (string, string, string, boo
 		}
 	}
 	return "", "", "", false
+}
+
+func (m *UnblockManager) IPv6Enabled() bool {
+	return m != nil && m.ipv6Enabled
+}
+
+func (m *UnblockManager) IPSetDebug() bool {
+	return m != nil && m.ipsetDebug
+}
+
+func (m *UnblockManager) IPSetStaleQueries() int {
+	if m == nil {
+		return 0
+	}
+	return m.ipsetStaleQueries
 }
 
 func (m *UnblockManager) restoreStaticRules() error {
@@ -270,12 +319,10 @@ func (m *UnblockManager) restoreStaticRules() error {
 func (m *UnblockManager) staticRulesSnapshot() []ruleRef {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
 	var out []ruleRef
-	for vpnType, set := range m.cachedConf.RuleMap() {
-		if *set == nil {
-			continue
-		}
-		for chain, rules := range *set {
+	for vpnType, set := range m.cachedConf.Rules {
+		for chain, rules := range set {
 			for _, pattern := range rules {
 				if isStaticPattern(pattern) {
 					out = append(out, ruleRef{vpnType: vpnType, chain: chain, value: pattern})
@@ -308,13 +355,13 @@ func (m *UnblockManager) applyStaticEntry(vpnType, chainName, pattern string, ad
 		if err != nil {
 			return err
 		}
-		set, err = obtainOrCreateIPSetFamily(ipsetName, "inet6")
+		set, err = m.registry.ObtainOrCreateFamily(ipsetName, "inet6")
 	} else {
 		ipsetName, err = IpsetName(vpnType, chainName)
 		if err != nil {
 			return err
 		}
-		set, err = obtainOrCreateIPSetFamily(ipsetName, "inet")
+		set, err = m.registry.ObtainOrCreateFamily(ipsetName, "inet")
 	}
 	if err != nil {
 		return err

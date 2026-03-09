@@ -3,7 +3,7 @@ package cmd
 import (
 	"os"
 
-	"github.com/ApostolDmitry/vpner/cmd/vpnerctl/internal/client"
+	"github.com/ApostolDmitry/vpner/internal/client"
 	"github.com/spf13/cobra"
 )
 

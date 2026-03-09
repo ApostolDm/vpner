@@ -29,9 +29,11 @@ The whole system lives under `/opt/etc/vpner` by default and is designed to be d
 | --- | --- |
 | `cmd/vpnerd` | Main daemon entrypoint. |
 | `cmd/vpnerctl` | CLI for managing `vpnerd`. |
-| `internal/network`, `internal/routing`, `internal/server` | iptables/ipset logic, Xray orchestration, and gRPC handlers. |
-| `internal/runtime` | Wiring: DoH resolver, DNS service, gRPC setup. |
-| `config/` | Configuration loader (`vpner.yaml`). |
+| `internal/app` | Runtime/bootstrap: service wiring, listener setup, lifecycle management. |
+| `internal/service/*` | High-level services for DNS, Xray, interfaces, and routing. |
+| `internal/dns`, `internal/doh`, `internal/xray`, `internal/network` | Low-level infrastructure: DNS server, DoH client, Xray manager, iptables/ipset logic. |
+| `internal/grpcserver` | gRPC transport layer and request handlers. |
+| `internal/config` | Configuration loader and defaults for `vpner.yaml`. |
 | `proto/` + `internal/grpc/` | Protobuf definitions and generated gRPC code. |
 | `tools/regenerate-proto` | Helper to re-run `protoc`. |
 | `make.sh` | Multi-arch packaging script that produces `.ipk` files and raw binaries. |

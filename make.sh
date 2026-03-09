@@ -96,11 +96,18 @@ POSTINST
 render_ndm_hook() {
   cat <<'HOOK'
 #!/bin/sh
-if [ "${table}" = 'nat' ] && [ "${type}" = 'iptables' ]; then
-  __INSTALL_PREFIX__/etc/vpner/vpnerhookcli --unix /tmp/vpner.sock --family ipv4 >/dev/null 2>&1 &
-elif [ "${table}" = 'nat' ] && [ "${type}" = 'ip6tables' ]; then
-  __INSTALL_PREFIX__/etc/vpner/vpnerhookcli --unix /tmp/vpner.sock --family ipv6 >/dev/null 2>&1 &
-fi
+case "${table}" in
+  nat|mangle)
+    case "${type}" in
+      iptables)
+        __INSTALL_PREFIX__/etc/vpner/vpnerhookcli --unix /tmp/vpner.sock --family ipv4 --table "${table}" >/dev/null 2>&1 &
+        ;;
+      ip6tables)
+        __INSTALL_PREFIX__/etc/vpner/vpnerhookcli --unix /tmp/vpner.sock --family ipv6 --table "${table}" >/dev/null 2>&1 &
+        ;;
+    esac
+    ;;
+esac
 exit 0
 HOOK
 }

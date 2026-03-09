@@ -1,0 +1,107 @@
+package config
+
+import (
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/ApostolDmitry/vpner/internal/dns"
+	"github.com/ApostolDmitry/vpner/internal/doh"
+	"gopkg.in/yaml.v3"
+)
+
+type GRPCTCPConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Address string `yaml:"address"`
+	Auth    bool   `yaml:"auth"`
+}
+
+type GRPCUnixConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Path    string `yaml:"path"`
+}
+
+type GRPCAuthConfig struct {
+	Password string `yaml:"password"`
+}
+
+type GRPCConfig struct {
+	TCP  GRPCTCPConfig  `yaml:"tcp"`
+	Unix GRPCUnixConfig `yaml:"unix"`
+	Auth GRPCAuthConfig `yaml:"auth"`
+}
+
+type NetworkConfig struct {
+	LANInterface      string   `yaml:"lan-interface"`
+	LANInterfaces     []string `yaml:"lan-interfaces"`
+	EnableIPv6        bool     `yaml:"enable-ipv6"`
+	EnableTProxy      bool     `yaml:"enable-tproxy"`
+	IPSetDebug        bool     `yaml:"ipset-debug"`
+	IPSetStaleQueries int      `yaml:"ipset-stale-queries"`
+}
+
+type FullConfig struct {
+	DNSServer        dns.ServerConfig   `yaml:"dnsServer"`
+	GRPC             GRPCConfig         `yaml:"grpc"`
+	DoH              doh.ResolverConfig `yaml:"doh"`
+	UnblockRulesPath string             `yaml:"unblock-rules-path"`
+	Network          NetworkConfig      `yaml:"network"`
+}
+
+func LoadFullConfig(path string) (*FullConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config: %w", err)
+	}
+
+	var cfg FullConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse yaml: %w", err)
+	}
+
+	// defaults
+	if cfg.UnblockRulesPath == "" {
+		cfg.UnblockRulesPath = "/opt/etc/vpner/vpner_unblock.yaml"
+	}
+	if cfg.DNSServer.Port == 0 {
+		cfg.DNSServer.Port = 53
+	}
+	if cfg.DNSServer.MaxConcurrentConn == 0 {
+		cfg.DNSServer.MaxConcurrentConn = 100
+	}
+	if cfg.GRPC.TCP.Address == "" {
+		cfg.GRPC.TCP.Address = ":50051"
+	}
+	if cfg.DoH.CacheTTL == 0 {
+		cfg.DoH.CacheTTL = 300
+	}
+	cfg.Network.LANInterfaces = normalizeInterfaces(cfg.Network.LANInterfaces, cfg.Network.LANInterface)
+	if len(cfg.Network.LANInterfaces) == 0 {
+		cfg.Network.LANInterfaces = []string{"br0"}
+	}
+
+	return &cfg, nil
+}
+
+func normalizeInterfaces(list []string, fallback string) []string {
+	var result []string
+	seen := make(map[string]struct{})
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		if _, ok := seen[value]; ok {
+			return
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	for _, value := range list {
+		add(value)
+	}
+	if len(result) == 0 {
+		add(fallback)
+	}
+	return result
+}
