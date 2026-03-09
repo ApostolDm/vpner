@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+
+	"github.com/ApostolDmitry/vpner/internal/common/logging"
 )
 
 type vpnRoutingInfo struct {
@@ -60,10 +62,11 @@ var (
 )
 
 type IptablesManager struct {
-	mu          sync.Mutex
-	routingV4   map[string]vpnRoutingInfo
-	routingV6   map[string]vpnRoutingInfo
-	ipv6Enabled bool
+	mu            sync.Mutex
+	routingV4     map[string]vpnRoutingInfo
+	routingV6     map[string]vpnRoutingInfo
+	ipv6Enabled   bool
+	tproxyEnabled bool
 }
 
 type VPNType string
@@ -87,6 +90,11 @@ const (
 	tableNat        = "nat"
 	tableMangle     = "mangle"
 	chainPrerouting = "PREROUTING"
+
+	tproxyMark    = "200"
+	tproxyMarkVal = "200"
+	tproxyTableID = 200
+	chainDivert   = "VPN_DIVERT"
 )
 
 var localExceptionsV4 = [...]string{
@@ -120,7 +128,6 @@ func (v VPNType) IsValid() bool {
 // --- command execution ---
 
 func run(name string, args ...string) error {
-	log.Printf("Executing: %s %s", name, strings.Join(args, " "))
 	out, err := exec.Command(name, args...).CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
@@ -147,11 +154,12 @@ func isChainExistsError(err error) bool {
 
 // --- constructor & cleanup ---
 
-func NewIptablesManager(ipv6Enabled bool) *IptablesManager {
+func NewIptablesManager(ipv6Enabled, tproxyEnabled bool) *IptablesManager {
 	mgr := &IptablesManager{
-		routingV4:   make(map[string]vpnRoutingInfo),
-		routingV6:   make(map[string]vpnRoutingInfo),
-		ipv6Enabled: ipv6Enabled,
+		routingV4:     make(map[string]vpnRoutingInfo),
+		routingV6:     make(map[string]vpnRoutingInfo),
+		ipv6Enabled:   ipv6Enabled,
+		tproxyEnabled: tproxyEnabled,
 	}
 	mgr.cleanupFamily(familyV4)
 	if ipv6Enabled || commandExists(familyV6.iptablesSaveCmd) {
@@ -164,13 +172,14 @@ func (i *IptablesManager) cleanupFamily(f ipFamily) {
 	i.cleanupOldChainsInTable(f, tableNat)
 	i.cleanupOldChainsInTable(f, tableMangle)
 	i.cleanupOldIPRulesAndRoutes(f)
+	i.cleanupTProxyIPRule(f)
 }
 
 func (i *IptablesManager) cleanupOldIPRulesAndRoutes(f ipFamily) {
 	args := append(f.ipFlags, "rule")
 	out, err := exec.Command("ip", args...).Output()
 	if err != nil {
-		log.Printf("Failed to list ip rules: %v", err)
+		logging.Warnf("failed to list ip rules: %v", err)
 		return
 	}
 
@@ -191,10 +200,10 @@ func (i *IptablesManager) cleanupOldIPRulesAndRoutes(f ipFamily) {
 			}
 		}
 		if fwmark == tableID && fwmark >= 100 && fwmark <= 0xFFF+100 {
-			log.Printf("Cleaning old ip rule: fwmark %d table %d", fwmark, tableID)
+			logging.Infof("cleanup ip rule fwmark=%d table=%d", fwmark, tableID)
 			delArgs := append(f.ipFlags, "rule", "del", "fwmark", fmt.Sprintf("%d", fwmark), "table", fmt.Sprintf("%d", tableID))
 			_ = run("ip", delArgs...)
-			log.Printf("Flushing old route table: %d", tableID)
+			logging.Infof("flush route table %d", tableID)
 			flushArgs := append(f.ipFlags, "route", "flush", "table", fmt.Sprintf("%d", tableID))
 			_ = run("ip", flushArgs...)
 		}
@@ -204,7 +213,7 @@ func (i *IptablesManager) cleanupOldIPRulesAndRoutes(f ipFamily) {
 func (i *IptablesManager) cleanupOldChainsInTable(f ipFamily, table string) {
 	out, err := exec.Command(f.iptablesSaveCmd, "-t", table).Output()
 	if err != nil {
-		log.Printf("Failed to run %s -t %s: %v", f.iptablesSaveCmd, table, err)
+		logging.Warnf("failed to run %s -t %s: %v", f.iptablesSaveCmd, table, err)
 		return
 	}
 
@@ -229,7 +238,12 @@ func (i *IptablesManager) cleanupOldChainsInTable(f ipFamily, table string) {
 	for _, rule := range jumps {
 		delRule := strings.Replace(rule, "-A", "-D", 1)
 		args := append([]string{"-t", table}, strings.Fields(delRule)...)
-		log.Printf("Cleaning %s PREROUTING jump: %s %s", table, f.iptablesCmd, strings.Join(args, " "))
+		logging.Infof(
+			"cleanup %s PREROUTING jump: %s %s",
+			table,
+			f.iptablesCmd,
+			strings.Join(args, " "),
+		)
 		_ = run(f.iptablesCmd, args...)
 	}
 
@@ -319,6 +333,12 @@ func (i *IptablesManager) RemoveRulesV6(ipsetName string) error {
 // --- unified add/remove per family ---
 
 func (i *IptablesManager) addRulesForFamily(f ipFamily, routing map[string]vpnRoutingInfo, vpnType VPNType, ipsetName string, param int, iface, vpnIface string) error {
+	logging.Infof(
+		"add routing ipset=%s vpn=%s iface=%s",
+		ipsetName,
+		vpnType,
+		iface,
+	)
 	if !vpnType.IsValid() {
 		return fmt.Errorf("unsupported VPN type: %s", vpnType)
 	}
@@ -333,25 +353,10 @@ func (i *IptablesManager) addRulesForFamily(f ipFamily, routing map[string]vpnRo
 
 	switch vpnType {
 	case Xray:
-		info := routing[ipsetName]
-
-		if err := ensureChain(f.iptablesCmd, tableNat, chainName); err != nil {
-			return err
+		if i.tproxyEnabled {
+			return i.addXrayTProxyRules(f, routing, ipsetName, chainName, param, iface)
 		}
-
-		info.ChainName = chainName
-		info.Table = tableNat
-		
-		jmp, err := linkChain(f.iptablesCmd, tableNat, chainName, iface)
-		if err != nil {
-			return err
-		}
-		if err := addRedirectRules(f.iptablesCmd, chainName, ipsetName, param, iface); err != nil {
-			return err
-		}
-		info.JumpRules = appendJumpRule(info.JumpRules, jmp)
-		routing[ipsetName] = info
-		return nil
+		return i.addXrayRedirectRules(f, routing, ipsetName, chainName, param, iface)
 
 	case OpenVPN, Wireguard, IKE, SSTP, PPPOE, L2TP, PPTP:
 		if err := ensureChain(f.iptablesCmd, tableMangle, chainName); err != nil {
@@ -420,77 +425,85 @@ func (i *IptablesManager) removeRulesForFamily(f ipFamily, routing map[string]vp
 // --- iptables helpers ---
 
 func ensureChain(iptablesCmd, table, chain string) error {
-	if err := run(iptablesCmd, "-t", table, "-N", chain); err != nil {
-		if isChainExistsError(err) {
+
+	logging.Infof("ensure chain %s (table=%s)", chain, table)
+
+	err := run(iptablesCmd, "-t", table, "-N", chain)
+
+	if err != nil {
+		if strings.Contains(err.Error(), "exists") ||
+			strings.Contains(err.Error(), "File exists") {
+
+			logging.Debugf("chain %s already exists", chain)
 			return nil
 		}
+
 		return err
 	}
+
 	return nil
 }
 
 func linkChain(iptablesCmd, table, chain, iface string) (jumpRule, error) {
+
+	logging.Infof(
+		"link PREROUTING -> %s (table=%s iface=%s)",
+		chain,
+		table,
+		iface,
+	)
+
 	jmp := jumpRule{
 		Cmd:  iptablesCmd,
 		Args: []string{"-t", table, "-A", chainPrerouting, "-i", iface, "-j", chain},
 	}
-	checkArgs := make([]string, len(jmp.Args))
-	copy(checkArgs, jmp.Args)
-	for idx, a := range checkArgs {
-		if a == "-A" {
-			checkArgs[idx] = "-C"
-			break
+
+	err := run(iptablesCmd, jmp.Args...)
+
+	if err != nil {
+		if strings.Contains(err.Error(), "exists") {
+			return jmp, nil
 		}
-	}
-	if err := run(iptablesCmd, checkArgs...); err == nil {
-		return jmp, nil
-	}
-	if err := run(iptablesCmd, jmp.Args...); err != nil {
 		return jmp, err
 	}
+
 	return jmp, nil
 }
 
 func addRedirectRules(iptablesCmd, chainName, ipsetName string, port int, iface string) error {
-	for _, proto := range []string{"tcp", "udp"} {
-		args := []string{"-t", "nat", "-A", chainName,
-			"-i", iface, "-p", proto,
-			"-m", "set", "--match-set", ipsetName, "dst",
-			"-j", "REDIRECT", "--to-ports", fmt.Sprintf("%d", port)}
-		checkArgs := make([]string, len(args))
-		copy(checkArgs, args)
-		for idx, a := range checkArgs {
-			if a == "-A" {
-				checkArgs[idx] = "-C"
-				break
-			}
-		}
-		if err := run(iptablesCmd, checkArgs...); err == nil {
-			continue
-		}
-		if err := run(iptablesCmd, args...); err != nil {
-			return err
-		}
-	}
-	return nil
+
+	b := newBatch(iptablesCmd, tableNat)
+
+	b.Add(fmt.Sprintf(
+		"-A %s -i %s -p tcp -m set --match-set %s dst -j REDIRECT --to-ports %d",
+		chainName,
+		iface,
+		ipsetName,
+		port,
+	))
+
+	return b.Commit()
 }
 
 func addMarkRules(f ipFamily, chainName, ipsetName string, mark int, iface string) error {
+
+	b := newBatch(f.iptablesCmd, "mangle")
+
 	for _, cidr := range f.localExceptions {
-		if err := run(f.iptablesCmd, "-t", "mangle", "-A", chainName, "-i", iface, "-d", cidr, "-j", "RETURN"); err != nil {
-			return err
-		}
+		b.Add(fmt.Sprintf(
+			"-A %s -i %s -d %s -j RETURN",
+			chainName, iface, cidr,
+		))
 	}
+
 	for _, proto := range []string{"tcp", "udp"} {
-		args := []string{"-t", "mangle", "-A", chainName,
-			"-i", iface, "-p", proto,
-			"-m", "set", "--match-set", ipsetName, "dst",
-			"-j", "MARK", "--set-mark", fmt.Sprintf("%d", mark)}
-		if err := run(f.iptablesCmd, args...); err != nil {
-			return err
-		}
+		b.Add(fmt.Sprintf(
+			"-A %s -i %s -p %s -m set --match-set %s dst -j MARK --set-mark %d",
+			chainName, iface, proto, ipsetName, mark,
+		))
 	}
-	return nil
+
+	return b.Commit()
 }
 
 func addIPRule(f ipFamily, mark, tableID int) error {
@@ -501,6 +514,230 @@ func addIPRule(f ipFamily, mark, tableID int) error {
 func addIPRoute(f ipFamily, tableID int, iface string) error {
 	args := append(f.ipFlags, "route", "add", "default", "dev", iface, "table", fmt.Sprintf("%d", tableID))
 	return run("ip", args...)
+}
+
+// --- kernel modules ---
+
+func kernelRelease() string {
+	out, err := exec.Command("uname", "-r").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func loadKernelModule(path string) error {
+	out, err := exec.Command("insmod", path).CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		// "File exists" means module is already loaded — that's fine.
+		if strings.Contains(msg, "File exists") {
+			return nil
+		}
+		if msg != "" {
+			return fmt.Errorf("%s (%s)", msg, err)
+		}
+		return err
+	}
+	return nil
+}
+
+// EnsureTProxySupport loads required kernel modules (xt_TPROXY, xt_socket).
+// Returns nil if both are available (or already loaded).
+func EnsureTProxySupport() error {
+	release := kernelRelease()
+	if release == "" {
+		return fmt.Errorf("failed to determine kernel release (uname -r)")
+	}
+	for _, mod := range []string{"xt_TPROXY", "xt_socket"} {
+		path := fmt.Sprintf("/lib/modules/%s/%s.ko", release, mod)
+		if err := loadKernelModule(path); err != nil {
+			return fmt.Errorf("module %s: %w", mod, err)
+		}
+	}
+	return nil
+}
+
+// --- TPROXY ---
+
+func (i *IptablesManager) addXrayRedirectRules(f ipFamily, routing map[string]vpnRoutingInfo, ipsetName, chainName string, port int, iface string) error {
+	logging.Infof(
+		"configure Xray REDIRECT chain=%s ipset=%s port=%d",
+		chainName,
+		ipsetName,
+		port,
+	)
+	info := routing[ipsetName]
+	if err := ensureChain(f.iptablesCmd, tableNat, chainName); err != nil {
+		return err
+	}
+	info.ChainName = chainName
+	info.Table = tableNat
+	jmp, err := linkChain(f.iptablesCmd, tableNat, chainName, iface)
+	if err != nil {
+		return err
+	}
+	if err := addRedirectRules(f.iptablesCmd, chainName, ipsetName, port, iface); err != nil {
+		return err
+	}
+	info.JumpRules = appendJumpRule(info.JumpRules, jmp)
+	routing[ipsetName] = info
+	return nil
+}
+
+func (i *IptablesManager) addXrayTProxyRules(f ipFamily, routing map[string]vpnRoutingInfo, ipsetName, chainName string, port int, iface string) error {
+	logging.Infof(
+		"configure Xray TPROXY chain=%s ipset=%s port=%d",
+		chainName,
+		ipsetName,
+		port,
+	)
+	if err := i.ensureTProxyInfra(f); err != nil {
+		return fmt.Errorf("tproxy infra: %w", err)
+	}
+	info := routing[ipsetName]
+	if err := ensureChain(f.iptablesCmd, tableMangle, chainName); err != nil {
+		return err
+	}
+	info.ChainName = chainName
+	info.Table = tableMangle
+	jmp, err := linkChain(f.iptablesCmd, tableMangle, chainName, iface)
+	if err != nil {
+		return err
+	}
+	if err := addTProxyRules(f, chainName, ipsetName, port, iface); err != nil {
+		return err
+	}
+	info.JumpRules = appendJumpRule(info.JumpRules, jmp)
+	routing[ipsetName] = info
+	return nil
+}
+
+func (i *IptablesManager) ensureTProxyInfra(f ipFamily) error {
+
+	b := newBatch(f.iptablesCmd, tableMangle)
+
+	b.Add(fmt.Sprintf(":%s - [0:0]", chainDivert))
+
+	b.Add(fmt.Sprintf(
+		"-A %s -j MARK --set-mark %s",
+		chainDivert,
+		tproxyMark,
+	))
+
+	b.Add(fmt.Sprintf(
+		"-A %s -j ACCEPT",
+		chainDivert,
+	))
+
+	b.Add(fmt.Sprintf(
+		"-A %s -p tcp -m socket -j %s",
+		chainPrerouting,
+		chainDivert,
+	))
+
+	if err := b.Commit(); err != nil {
+		return err
+	}
+
+	tbl := fmt.Sprintf("%d", tproxyTableID)
+
+	if !ipRuleExists(f, tproxyMarkVal, tbl) {
+		addRule := append(f.ipFlags, "rule", "add", "fwmark", tproxyMarkVal, "lookup", tbl)
+		_ = run("ip", addRule...)
+	}
+
+	addRoute := append(f.ipFlags, "route", "replace", "local", "default", "dev", "lo", "table", tbl)
+	_ = run("ip", addRoute...)
+
+	return nil
+}
+
+func addTProxyRules(f ipFamily, chainName, ipsetName string, port int, iface string) error {
+
+	b := newBatch(f.iptablesCmd, tableMangle)
+
+	b.Add(fmt.Sprintf(
+		"-A %s -m mark --mark %s -j RETURN",
+		chainName, tproxyMark,
+	))
+
+	for _, cidr := range f.localExceptions {
+		b.Add(fmt.Sprintf(
+			"-A %s -i %s -d %s -j RETURN",
+			chainName, iface, cidr,
+		))
+	}
+
+	for _, proto := range []string{"tcp", "udp"} {
+		b.Add(fmt.Sprintf(
+			"-A %s -i %s -p %s -m set --match-set %s dst -j TPROXY --on-port %d --tproxy-mark %s",
+			chainName, iface, proto, ipsetName, port, tproxyMark,
+		))
+	}
+
+	return b.Commit()
+}
+
+func ensureRule(iptablesCmd, table, chain string, ruleArgs ...string) {
+	checkArgs := append([]string{"-t", table, "-C", chain}, ruleArgs...)
+	if run(iptablesCmd, checkArgs...) == nil {
+		return
+	}
+	addArgs := append([]string{"-t", table, "-A", chain}, ruleArgs...)
+	_ = run(iptablesCmd, addArgs...)
+}
+
+func ipRuleExists(f ipFamily, fwmark, table string) bool {
+	args := append(f.ipFlags, "rule", "show")
+	out, err := exec.Command("ip", args...).Output()
+	if err != nil {
+		return false
+	}
+	// busybox outputs fwmark as hex (0xc8), iproute2 as decimal (200).
+	var fwmarkInt int
+	fmt.Sscanf(fwmark, "%d", &fwmarkInt)
+	fwmarkHex := fmt.Sprintf("0x%x", fwmarkInt)
+
+	for _, line := range strings.Split(string(out), "\n") {
+		hasMark := strings.Contains(line, "fwmark "+fwmark) || strings.Contains(line, "fwmark "+fwmarkHex)
+		if hasMark && strings.Contains(line, "lookup "+table) {
+			return true
+		}
+	}
+	return false
+}
+
+func (i *IptablesManager) cleanupTProxyIPRule(f ipFamily) {
+	tbl := fmt.Sprintf("%d", tproxyTableID)
+	delArgs := append(f.ipFlags, "rule", "del", "fwmark", tproxyMarkVal, "lookup", tbl)
+	// Delete all duplicates (ip rule add creates duplicates).
+	for ipRuleExists(f, tproxyMarkVal, tbl) {
+		_ = run("ip", delArgs...)
+	}
+	flushArgs := append(f.ipFlags, "route", "flush", "table", tbl)
+	_ = run("ip", flushArgs...)
+}
+
+func (i *IptablesManager) cleanupTProxyInfraForFamily(f ipFamily) {
+	for _, proto := range []string{"tcp", "udp"} {
+		_ = run(f.iptablesCmd, "-t", tableMangle, "-D", chainPrerouting,
+			"-p", proto, "-m", "socket", "-j", chainDivert)
+	}
+	_ = run(f.iptablesCmd, "-t", tableMangle, "-F", chainDivert)
+	_ = run(f.iptablesCmd, "-t", tableMangle, "-X", chainDivert)
+	i.cleanupTProxyIPRule(f)
+}
+
+func (i *IptablesManager) Shutdown() {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.tproxyEnabled {
+		i.cleanupTProxyInfraForFamily(familyV4)
+		if i.ipv6Enabled {
+			i.cleanupTProxyInfraForFamily(familyV6)
+		}
+	}
 }
 
 // --- utilities ---

@@ -56,19 +56,20 @@ type XrayInfoDetails struct {
 }
 
 type XrayManager struct {
-	mu      sync.RWMutex
-	baseDir string
+	mu            sync.RWMutex
+	baseDir       string
+	tproxyEnabled bool
 }
 
-func NewXrayManager() (*XrayManager, error) {
-	return newXrayManager(defaultXrayBaseDir)
+func NewXrayManager(tproxyEnabled bool) (*XrayManager, error) {
+	return newXrayManager(defaultXrayBaseDir, tproxyEnabled)
 }
 
-func newXrayManager(dir string) (*XrayManager, error) {
+func newXrayManager(dir string, tproxyEnabled bool) (*XrayManager, error) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to prepare xray directory %s: %w", dir, err)
 	}
-	return &XrayManager{baseDir: dir}, nil
+	return &XrayManager{baseDir: dir, tproxyEnabled: tproxyEnabled}, nil
 }
 
 func (x *XrayManager) configPath(name string) string {
@@ -153,6 +154,9 @@ func (x *XrayManager) StartXray(ctx context.Context, name string) error {
 		return fmt.Errorf("failed to stat config: %w", err)
 	}
 	if err := x.ensureVLESSUserEncryption(configPath); err != nil {
+		return err
+	}
+	if err := x.ensureInboundTProxy(configPath); err != nil {
 		return err
 	}
 

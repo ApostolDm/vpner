@@ -104,72 +104,145 @@ func unblockImportFileCmd() *cobra.Command {
 	var (
 		chain string
 		file  string
+		force bool
 	)
+
 	cmd := &cobra.Command{
 		Use:   "import-file",
 		Short: "Import unblock patterns from a file",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var err error
+
 			chain, err = resolveChainOrPrompt(chain)
 			if err != nil {
 				return err
 			}
+
 			patterns, err := readPatternsFromFile(file)
 			if err != nil {
 				return err
 			}
+
 			return withClient(func(ctx context.Context, c grpcpb.VpnerManagerClient) error {
-				var imported int
+				var (
+					imported int
+					failed   int
+				)
+
 				for _, pattern := range patterns {
-					resp, err := c.UnblockAdd(ctx, &grpcpb.UnblockAddRequest{Domain: pattern, ChainName: chain})
+
+					resp, err := c.UnblockAdd(ctx, &grpcpb.UnblockAddRequest{
+						Domain:    pattern,
+						ChainName: chain,
+					})
+
 					if err != nil {
+						if force {
+							fmt.Printf("ERROR %s: %v\n", pattern, err)
+							failed++
+							continue
+						}
 						return fmt.Errorf("%s: %w", pattern, err)
 					}
+
 					if err := checkGenericResponse(resp); err != nil {
+						if force {
+							fmt.Printf("ERROR %s: %v\n", pattern, err)
+							failed++
+							continue
+						}
 						return fmt.Errorf("%s: %w", pattern, err)
 					}
+
 					imported++
 				}
-				fmt.Printf("Imported %d patterns from %s\n", imported, file)
+
+				fmt.Printf("Imported %d patterns from %s", imported, file)
+				if failed > 0 {
+					fmt.Printf(" (%d errors ignored)", failed)
+				}
+				fmt.Println()
+
 				return nil
 			})
 		},
 	}
+
 	cmd.Flags().StringVar(&chain, "chain", "", "chain name (VPN interface)")
 	cmd.Flags().StringVar(&file, "file", "", "path to file with patterns")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "ignore errors and continue")
+
 	_ = cmd.MarkFlagRequired("file")
+
 	return cmd
 }
 
 func unblockDeleteFileCmd() *cobra.Command {
-	var file string
+	var (
+		file  string
+		force bool
+	)
+
 	cmd := &cobra.Command{
 		Use:   "delete-file",
 		Short: "Delete unblock patterns listed in a file",
 		RunE: func(cmd *cobra.Command, args []string) error {
+
 			patterns, err := readPatternsFromFile(file)
 			if err != nil {
 				return err
 			}
+
 			return withClient(func(ctx context.Context, c grpcpb.VpnerManagerClient) error {
-				var removed int
+
+				var (
+					removed int
+					failed  int
+				)
+
 				for _, pattern := range patterns {
-					resp, err := c.UnblockDel(ctx, &grpcpb.UnblockDelRequest{Domain: pattern})
+
+					resp, err := c.UnblockDel(ctx, &grpcpb.UnblockDelRequest{
+						Domain: pattern,
+					})
+
 					if err != nil {
+						if force {
+							fmt.Printf("ERROR %s: %v\n", pattern, err)
+							failed++
+							continue
+						}
 						return fmt.Errorf("%s: %w", pattern, err)
 					}
+
 					if err := checkGenericResponse(resp); err != nil {
+						if force {
+							fmt.Printf("ERROR %s: %v\n", pattern, err)
+							failed++
+							continue
+						}
 						return fmt.Errorf("%s: %w", pattern, err)
 					}
+
 					removed++
 				}
-				fmt.Printf("Deleted %d patterns from %s\n", removed, file)
+
+				fmt.Printf("Deleted %d patterns from %s", removed, file)
+				if failed > 0 {
+					fmt.Printf(" (%d errors ignored)", failed)
+				}
+				fmt.Println()
+
 				return nil
 			})
 		},
 	}
+
 	cmd.Flags().StringVar(&file, "file", "", "path to file with patterns")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "ignore errors and continue")
+
 	_ = cmd.MarkFlagRequired("file")
+
 	return cmd
 }
 

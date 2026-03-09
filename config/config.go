@@ -35,6 +35,7 @@ type NetworkConfig struct {
 	LANInterface      string   `yaml:"lan-interface"`
 	LANInterfaces     []string `yaml:"lan-interfaces"`
 	EnableIPv6        bool     `yaml:"enable-ipv6"`
+	EnableTProxy      bool     `yaml:"enable-tproxy"`
 	IPSetDebug        bool     `yaml:"ipset-debug"`
 	IPSetStaleQueries int      `yaml:"ipset-stale-queries"`
 }

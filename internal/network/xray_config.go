@@ -16,19 +16,19 @@ func (x *XrayManager) buildConfig(link string, port int) (*xrayFile, error) {
 		if err != nil {
 			return nil, err
 		}
-		return generateVLESSConfig(cfg, port), nil
+		return generateVLESSConfig(cfg, port, x.tproxyEnabled), nil
 	case strings.HasPrefix(link, "vmess://"):
 		cfg, err := x.parseVMESS(link)
 		if err != nil {
 			return nil, err
 		}
-		return generateVMESSConfig(cfg, port), nil
+		return generateVMESSConfig(cfg, port, x.tproxyEnabled), nil
 	case strings.HasPrefix(link, "ss://"):
 		cfg, err := x.parseSS(link)
 		if err != nil {
 			return nil, err
 		}
-		return generateSSConfig(cfg, port), nil
+		return generateSSConfig(cfg, port, x.tproxyEnabled), nil
 	default:
 		return nil, fmt.Errorf("unsupported link scheme")
 	}
@@ -36,7 +36,7 @@ func (x *XrayManager) buildConfig(link string, port int) (*xrayFile, error) {
 
 // --- VLESS ---
 
-func generateVLESSConfig(cfg map[string]string, port int) *xrayFile {
+func generateVLESSConfig(cfg map[string]string, port int, tproxyEnabled bool) *xrayFile {
 	encryption := cfg["encryption"]
 	if encryption == "" {
 		encryption = "none"
@@ -71,7 +71,7 @@ func generateVLESSConfig(cfg map[string]string, port int) *xrayFile {
 	}
 
 	return &xrayFile{
-		Inbounds:  []map[string]interface{}{defaultInbound(port)},
+		Inbounds:  []map[string]interface{}{defaultInbound(port, tproxyEnabled)},
 		Outbounds: withDefaultOutbounds(outbound),
 		Metadata: xrayMetadata{
 			Protocol:   "vless",
@@ -84,7 +84,7 @@ func generateVLESSConfig(cfg map[string]string, port int) *xrayFile {
 
 // --- VMess ---
 
-func generateVMESSConfig(cfg map[string]string, port int) *xrayFile {
+func generateVMESSConfig(cfg map[string]string, port int, tproxyEnabled bool) *xrayFile {
 	security := cfg["cipher"]
 	if security == "" {
 		security = "auto"
@@ -115,7 +115,7 @@ func generateVMESSConfig(cfg map[string]string, port int) *xrayFile {
 	}
 
 	return &xrayFile{
-		Inbounds:  []map[string]interface{}{defaultInbound(port)},
+		Inbounds:  []map[string]interface{}{defaultInbound(port, tproxyEnabled)},
 		Outbounds: []map[string]interface{}{outbound},
 		Metadata: xrayMetadata{
 			Protocol:   "vmess",
@@ -128,7 +128,7 @@ func generateVMESSConfig(cfg map[string]string, port int) *xrayFile {
 
 // --- Shadowsocks ---
 
-func generateSSConfig(cfg map[string]string, port int) *xrayFile {
+func generateSSConfig(cfg map[string]string, port int, tproxyEnabled bool) *xrayFile {
 	outbound := map[string]interface{}{
 		"protocol": "shadowsocks",
 		"settings": map[string]interface{}{
@@ -145,7 +145,7 @@ func generateSSConfig(cfg map[string]string, port int) *xrayFile {
 	}
 
 	return &xrayFile{
-		Inbounds:  []map[string]interface{}{defaultInbound(port)},
+		Inbounds:  []map[string]interface{}{defaultInbound(port, tproxyEnabled)},
 		Outbounds: []map[string]interface{}{outbound},
 		Metadata: xrayMetadata{
 			Protocol:   "shadowsocks",
@@ -448,10 +448,71 @@ func (x *XrayManager) ensureVLESSUserEncryption(path string) error {
 	return os.WriteFile(path, data, 0644)
 }
 
+func (x *XrayManager) ensureInboundTProxy(path string) error {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+
+	cfg, err := x.readConfig(path)
+	if err != nil {
+		return err
+	}
+	if !patchInboundTProxy(cfg, x.tproxyEnabled) {
+		return nil
+	}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+func patchInboundTProxy(cfg *xrayFile, tproxyEnabled bool) bool {
+	changed := false
+	for _, inbound := range cfg.Inbounds {
+		protocol, _ := inbound["protocol"].(string)
+		if protocol != "dokodemo-door" {
+			continue
+		}
+
+		if tproxyEnabled {
+			if inbound["listen"] != "0.0.0.0" {
+				inbound["listen"] = "0.0.0.0"
+				changed = true
+			}
+			stream, ok := inbound["streamSettings"].(map[string]interface{})
+			if !ok {
+				stream = map[string]interface{}{}
+				inbound["streamSettings"] = stream
+				changed = true
+			}
+			sockopt, ok := stream["sockopt"].(map[string]interface{})
+			if !ok {
+				sockopt = map[string]interface{}{}
+				stream["sockopt"] = sockopt
+				changed = true
+			}
+			if sockopt["tproxy"] != "tproxy" {
+				sockopt["tproxy"] = "tproxy"
+				changed = true
+			}
+		} else {
+			if _, has := inbound["listen"]; has {
+				delete(inbound, "listen")
+				changed = true
+			}
+			if _, has := inbound["streamSettings"]; has {
+				delete(inbound, "streamSettings")
+				changed = true
+			}
+		}
+	}
+	return changed
+}
+
 // --- shared helpers ---
 
-func defaultInbound(port int) map[string]interface{} {
-	return map[string]interface{}{
+func defaultInbound(port int, tproxyEnabled bool) map[string]interface{} {
+	inbound := map[string]interface{}{
 		"port":     port,
 		"protocol": "dokodemo-door",
 		"settings": map[string]interface{}{
@@ -464,6 +525,15 @@ func defaultInbound(port int) map[string]interface{} {
 			"destOverride": []string{"http", "tls"},
 		},
 	}
+	if tproxyEnabled {
+		inbound["listen"] = "0.0.0.0"
+		inbound["streamSettings"] = map[string]interface{}{
+			"sockopt": map[string]interface{}{
+				"tproxy": "tproxy",
+			},
+		}
+	}
+	return inbound
 }
 
 func withDefaultOutbounds(primary map[string]interface{}) []map[string]interface{} {
