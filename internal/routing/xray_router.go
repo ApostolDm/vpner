@@ -163,6 +163,9 @@ func (r *XrayRouter) RestoreFamily(info map[string]network.XrayInfoDetails, isRu
 
 func (r *XrayRouter) Shutdown() {
 	r.removeAll()
+	if r.ready() {
+		r.iptables.Shutdown()
+	}
 }
 
 func (r *XrayRouter) ResetState() {

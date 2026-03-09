@@ -1,7 +1,6 @@
 package logging
 
 import (
-	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -48,11 +47,7 @@ func logf(level Level, prefix, format string, args ...any) {
 	if level > currentLevel {
 		return
 	}
-	msg := fmt.Sprintf(format, args...)
-	if prefix != "" {
-		msg = fmt.Sprintf("[%s] %s", strings.ToUpper(prefix), msg)
-	}
-	logger.Println(msg)
+	logger.Printf("[%s] "+format, append([]any{strings.ToUpper(prefix)}, args...)...)
 }
 
 func Debugf(format string, args ...any) { logf(LevelDebug, "debug", format, args...) }

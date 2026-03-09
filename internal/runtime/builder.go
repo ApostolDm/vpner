@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/ApostolDmitry/vpner/config"
 	"github.com/ApostolDmitry/vpner/internal/dohclient"
@@ -27,12 +28,20 @@ func buildRuntimeGraph(cfg config.FullConfig) (*runtimeGraph, error) {
 		return nil, fmt.Errorf("failed to init unblock manager: %w", err)
 	}
 
-	xrayMgr, err := network.NewXrayManager()
+	tproxyEnabled := cfg.Network.EnableTProxy
+	if tproxyEnabled {
+		if err := network.EnsureTProxySupport(); err != nil {
+			log.Printf("WARNING: TPROXY disabled, falling back to REDIRECT: %v", err)
+			tproxyEnabled = false
+		}
+	}
+
+	xrayMgr, err := network.NewXrayManager(tproxyEnabled)
 	if err != nil {
 		return nil, fmt.Errorf("failed to init xray manager: %w", err)
 	}
 
-	iptables := network.NewIptablesManager(cfg.Network.EnableIPv6)
+	iptables := network.NewIptablesManager(cfg.Network.EnableIPv6, tproxyEnabled)
 	xrayRouter := routing.NewXrayRouter(iptables, cfg.Network.LANInterfaces, cfg.Network.EnableIPv6)
 
 	dnsSvc := dnsservice.New(cfg.DNSServer, unblock, resolver)
