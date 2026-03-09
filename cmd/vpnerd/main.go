@@ -7,9 +7,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/ApostolDmitry/vpner/config"
-	"github.com/ApostolDmitry/vpner/internal/common/logging"
-	appruntime "github.com/ApostolDmitry/vpner/internal/runtime"
+	"github.com/ApostolDmitry/vpner/internal/app"
+	"github.com/ApostolDmitry/vpner/internal/config"
+	"github.com/ApostolDmitry/vpner/internal/logging"
 	"github.com/alecthomas/kingpin/v2"
 )
 
@@ -26,6 +26,9 @@ func main() {
 	defer cancel()
 
 	logging.SetLevel(*logLevel)
+	if err := logging.Configure(); err != nil {
+		logging.Warnf("syslog unavailable, using stderr fallback: %v", err)
+	}
 	logging.Infof("Starting vpnerd, config=%s", *configFile)
 
 	go func() {
@@ -51,7 +54,7 @@ func launchApp(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	rt, err := appruntime.New(*cfg)
+	rt, err := app.New(*cfg)
 	if err != nil {
 		return err
 	}

@@ -10,6 +10,19 @@
 - Пакет `make.sh`, выпускающий `.ipk` для нескольких архитектур.
 - Hook‑клиент `vpshookcli`, чтобы мгновенно восстановить правила после очистки iptables.
 
+## Структура репозитория
+
+| Путь | Назначение |
+| --- | --- |
+| `cmd/vpnerd` | Точка входа демона. |
+| `cmd/vpnerctl` | CLI для управления `vpnerd`. |
+| `internal/app` | Bootstrap и runtime: сборка зависимостей, запуск listener'ов, lifecycle. |
+| `internal/service/*` | Сервисный слой для DNS, Xray, интерфейсов и routing. |
+| `internal/dns`, `internal/doh`, `internal/xray`, `internal/network` | Низкоуровневая инфраструктура: DNS-сервер, DoH-клиент, менеджер Xray, iptables/ipset. |
+| `internal/grpcserver` | gRPC transport и handlers. |
+| `internal/config` | Загрузка и нормализация `vpner.yaml`. |
+| `proto/` + `internal/grpc/` | Описание protobuf и сгенерированный gRPC-код. |
+
 ## Требования
 
 - `/opt` и `opkg` на роутере.

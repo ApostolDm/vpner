@@ -259,6 +259,14 @@ func Swap(from, to string) error {
 	return nil
 }
 
+// IPSetExists checks whether the named ipset exists in the kernel.
+func IPSetExists(name string) bool {
+	if err := initCheck(); err != nil {
+		return false
+	}
+	return exec.Command(ipsetPath, "-q", "list", name).Run() == nil
+}
+
 func EnsureIPSet(name, hashtype string, p *Params) error {
 	if err := initCheck(); err != nil {
 		return err

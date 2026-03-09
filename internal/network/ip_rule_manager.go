@@ -4,19 +4,11 @@ import (
 	"fmt"
 	"net"
 	"strings"
-	"sync"
 
-	"github.com/ApostolDmitry/vpner/internal/common/logging"
-	"github.com/ApostolDmitry/vpner/internal/common/patterns"
-	"github.com/ApostolDmitry/vpner/internal/dohclient"
+	"github.com/ApostolDmitry/vpner/internal/doh"
+	"github.com/ApostolDmitry/vpner/internal/logging"
+	"github.com/ApostolDmitry/vpner/internal/patterns"
 	"github.com/miekg/dns"
-)
-
-var (
-	ipsetCache       = make(map[string]*IPSet)
-	ipsetCacheMu     sync.Mutex
-	ipsetStaleCounts = make(map[string]map[string]int)
-	ipsetStaleMu     sync.Mutex
 )
 
 const (
@@ -24,31 +16,44 @@ const (
 	ipsetCommentDomainPart = "|domain="
 )
 
+type DomainRuleMatcher interface {
+	MatchDomain(domain string) (vpnType string, chainName string, rule string, ok bool)
+}
+
+type RuleRuntimeOptions struct {
+	IPv6Enabled       bool
+	IPSetDebug        bool
+	IPSetStaleQueries int
+}
+
 type IpRuleManager struct {
-	unblockManager    *UnblockManager
-	resolver          *dohclient.Resolver
+	matcher           DomainRuleMatcher
+	resolver          *doh.Resolver
+	registry          *IPSetRegistry
 	ipv6Enabled       bool
 	ipsetDebug        bool
 	ipsetStaleQueries int
 }
 
-func NewIpRuleManager(unblockManager *UnblockManager, resolver *dohclient.Resolver) *IpRuleManager {
+func NewIpRuleManager(matcher DomainRuleMatcher, opts RuleRuntimeOptions, resolver *doh.Resolver, registry *IPSetRegistry) *IpRuleManager {
+	if registry == nil {
+		registry = NewIPSetRegistry()
+	}
 	return &IpRuleManager{
-		unblockManager: unblockManager,
-		resolver:       resolver,
-		ipv6Enabled:    unblockManager != nil && unblockManager.ipv6Enabled,
-		ipsetDebug:     unblockManager != nil && unblockManager.ipsetDebug,
-		ipsetStaleQueries: func() int {
-			if unblockManager != nil {
-				return unblockManager.ipsetStaleQueries
-			}
-			return 0
-		}(),
+		matcher:           matcher,
+		resolver:          resolver,
+		registry:          registry,
+		ipv6Enabled:       opts.IPv6Enabled,
+		ipsetDebug:        opts.IPSetDebug,
+		ipsetStaleQueries: opts.IPSetStaleQueries,
 	}
 }
 
 func (m *IpRuleManager) CheckIPsInIpset(domain string) error {
-	vpnType, chainName, rule, ok := m.unblockManager.MatchDomain(domain)
+	if m.matcher == nil {
+		return nil
+	}
+	vpnType, chainName, rule, ok := m.matcher.MatchDomain(domain)
 	if !ok {
 		return nil
 	}
@@ -67,7 +72,10 @@ func (m *IpRuleManager) SyncFromAnswers(domain string, ips []net.IP) error {
 	if len(ips) == 0 {
 		return nil
 	}
-	vpnType, chainName, rule, ok := m.unblockManager.MatchDomain(domain)
+	if m.matcher == nil {
+		return nil
+	}
+	vpnType, chainName, rule, ok := m.matcher.MatchDomain(domain)
 	if !ok {
 		return nil
 	}
@@ -88,30 +96,14 @@ func (m *IpRuleManager) SyncFromAnswers(domain string, ips []net.IP) error {
 	return nil
 }
 
-func obtainOrCreateIPSetFamily(name, family string) (*IPSet, error) {
-	ipsetCacheMu.Lock()
-	defer ipsetCacheMu.Unlock()
-
-	if set, ok := ipsetCache[name]; ok {
-		return set, nil
-	}
-	params := &Params{Timeout: DefaultIPSetTimeout, WithComments: true, HashFamily: family}
-	set, err := NewIPset(name, "hash:net", params)
-	if err != nil {
-		return nil, err
-	}
-	ipsetCache[name] = set
-	return set, nil
-}
-
-func cleanupDomainEntries(vpnType, chainName, pattern string, ipv6Enabled bool, ipsetDebug bool) error {
+func cleanupDomainEntries(registry *IPSetRegistry, vpnType, chainName, pattern string, ipv6Enabled bool, ipsetDebug bool) error {
 	if pattern == "" {
 		return nil
 	}
-	if err := cleanupDomainEntriesForSet(vpnType, chainName, pattern, false, ipsetDebug); err != nil {
+	if err := cleanupDomainEntriesForSet(registry, vpnType, chainName, pattern, false, ipsetDebug); err != nil {
 		return err
 	}
-	if err := cleanupDomainEntriesForSet(vpnType, chainName, pattern, true, ipsetDebug); err != nil {
+	if err := cleanupDomainEntriesForSet(registry, vpnType, chainName, pattern, true, ipsetDebug); err != nil {
 		if ipv6Enabled {
 			return err
 		}
@@ -134,67 +126,6 @@ type staleEntry struct {
 
 func buildStaleKey(ipsetName, comment string) string {
 	return ipsetName + "|" + comment
-}
-
-func clearStaleCountsForRule(ipsetName, pattern string) {
-	prefix := buildStaleKey(ipsetName, ruleCommentPrefix(pattern))
-	ipsetStaleMu.Lock()
-	defer ipsetStaleMu.Unlock()
-
-	for key := range ipsetStaleCounts {
-		if strings.HasPrefix(key, prefix) {
-			delete(ipsetStaleCounts, key)
-		}
-	}
-}
-
-func collectStaleEntries(key string, existing []string, resolved map[string]struct{}, threshold int) []staleEntry {
-	if threshold <= 0 {
-		return nil
-	}
-
-	ipsetStaleMu.Lock()
-	defer ipsetStaleMu.Unlock()
-
-	counts, ok := ipsetStaleCounts[key]
-	if !ok {
-		counts = make(map[string]int)
-		ipsetStaleCounts[key] = counts
-	}
-
-	for ip := range resolved {
-		counts[ip] = 0
-	}
-
-	existingSet := make(map[string]struct{}, len(existing))
-	var stale []staleEntry
-	for _, entry := range existing {
-		existingSet[entry] = struct{}{}
-		if _, ok := resolved[entry]; ok {
-			counts[entry] = 0
-			continue
-		}
-		counts[entry]++
-		if counts[entry] >= threshold {
-			stale = append(stale, staleEntry{entry: entry, misses: counts[entry]})
-			delete(counts, entry)
-		}
-	}
-
-	for ip := range counts {
-		if _, ok := existingSet[ip]; ok {
-			continue
-		}
-		if _, ok := resolved[ip]; ok {
-			continue
-		}
-		delete(counts, ip)
-	}
-	if len(counts) == 0 {
-		delete(ipsetStaleCounts, key)
-	}
-
-	return stale
 }
 
 func isNoRecordsError(err error) bool {
@@ -237,7 +168,7 @@ func (m *IpRuleManager) syncResolvedIPs(vpnType, chainName, rule, domain string,
 		family = "inet"
 	}
 
-	set, err := obtainOrCreateIPSetFamily(ipsetName, family)
+	set, err := m.registry.ObtainOrCreateFamily(ipsetName, family)
 	if err != nil {
 		return fmt.Errorf("failed to prepare ipset %q: %w", ipsetName, err)
 	}
@@ -287,7 +218,7 @@ func (m *IpRuleManager) syncResolvedIPs(vpnType, chainName, rule, domain string,
 		}
 	}
 	if m.ipsetStaleQueries > 0 {
-		stale := collectStaleEntries(buildStaleKey(ipsetName, comment), existing, resolvedSet, m.ipsetStaleQueries)
+		stale := m.registry.CollectStaleEntries(buildStaleKey(ipsetName, comment), existing, resolvedSet, m.ipsetStaleQueries)
 		for _, entry := range stale {
 			if m.ipsetDebug {
 				logging.Infof("ipset del: set=%s entry=%s reason=stale-miss misses=%d threshold=%d domain=%s rule=%s", ipsetName, entry.entry, entry.misses, m.ipsetStaleQueries, domain, rule)
@@ -313,7 +244,7 @@ func (m *IpRuleManager) syncResolvedIPs(vpnType, chainName, rule, domain string,
 	return nil
 }
 
-func cleanupDomainEntriesForSet(vpnType, chainName, pattern string, ipv6 bool, ipsetDebug bool) error {
+func cleanupDomainEntriesForSet(registry *IPSetRegistry, vpnType, chainName, pattern string, ipv6 bool, ipsetDebug bool) error {
 	var ipsetName string
 	var err error
 	if ipv6 {
@@ -324,7 +255,7 @@ func cleanupDomainEntriesForSet(vpnType, chainName, pattern string, ipv6 bool, i
 	if err != nil {
 		return err
 	}
-	clearStaleCountsForRule(ipsetName, pattern)
+	registry.ClearStaleCountsForRule(ipsetName, pattern)
 	prefixed, err := entriesByCommentPrefix(ipsetName, ruleCommentPrefix(pattern))
 	if err != nil {
 		return err

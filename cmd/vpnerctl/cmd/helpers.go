@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ApostolDmitry/vpner/internal/common/table"
 	grpcpb "github.com/ApostolDmitry/vpner/internal/grpc"
+	"github.com/ApostolDmitry/vpner/internal/table"
 )
 
 var rpcTimeout = 120 * time.Second
