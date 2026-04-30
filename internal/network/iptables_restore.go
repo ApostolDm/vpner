@@ -29,7 +29,6 @@ func (i *IptablesManager) RestoreRouting(table string, restoreV4, restoreV6 bool
 	}
 
 	if i.tproxyEnabled && xrayApplied {
-		i.tproxyInfraReady = true
 		i.ipInfraReady = true
 	}
 }

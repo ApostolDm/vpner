@@ -86,6 +86,10 @@ func appendJumpRule(rules []jumpRule, rule jumpRule) []jumpRule {
 }
 
 func listPreroutingRules(iptablesCmd, table string) map[string]bool {
+	return listChainRules(iptablesCmd, table, chainPrerouting)
+}
+
+func listChainRules(iptablesCmd, table, chain string) map[string]bool {
 	out, err := exec.Command(iptablesSaveCmd(iptablesCmd), "-t", table).Output()
 	if err != nil {
 		return nil
@@ -93,9 +97,10 @@ func listPreroutingRules(iptablesCmd, table string) map[string]bool {
 
 	result := make(map[string]bool)
 	scanner := bufio.NewScanner(strings.NewReader(string(out)))
+	prefix := "-A " + chain
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "-A "+chainPrerouting) {
+		if line == prefix || strings.HasPrefix(line, prefix+" ") {
 			result[line] = true
 		}
 	}

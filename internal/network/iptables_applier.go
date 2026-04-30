@@ -158,7 +158,6 @@ func (i *IptablesManager) BatchApplyAllTProxy(specs []ChainSpec) error {
 	if err := i.batchApplyBothFamilies(specs, i.buildTProxyBatch); err != nil {
 		return err
 	}
-	i.tproxyInfraReady = true
 	i.ipInfraReady = true
 	return nil
 }
@@ -217,13 +216,10 @@ func (i *IptablesManager) applyXrayBatch(f ipFamily, routing map[string]vpnRouti
 func (i *IptablesManager) buildTProxyBatch(f ipFamily, routing map[string]vpnRoutingInfo, specs []ChainSpec) error {
 	i.ensureTProxyLocalRouting(f)
 
-	// Drop any pre-existing divert rule that lacks --transparent so the
-	// re-add below replaces it; without --transparent xt_socket also
-	// matches non-transparent sockets (e.g. xray's outbound to upstream),
-	// which routes their reply traffic through the local table and breaks
-	// the proxy.
-	_ = run(f.iptablesCmd, "-t", tableMangle, "-D", chainPrerouting,
-		"-p", "tcp", "-m", "socket", "-j", chainDivert)
+	i.cleanupLegacyTProxySocketRule(f)
+	if err := i.ensureMangleInputBypass(f); err != nil {
+		return fmt.Errorf("mangle INPUT bypass: %w", err)
+	}
 
 	existing := listPreroutingRules(f.iptablesCmd, tableMangle)
 	b := newBatch(f.iptablesCmd, tableMangle)
@@ -232,7 +228,7 @@ func (i *IptablesManager) buildTProxyBatch(f ipFamily, routing map[string]vpnRou
 	b.Add(fmt.Sprintf("-A %s -j MARK --set-mark %s", chainDivert, tproxyMark))
 	b.Add(fmt.Sprintf("-A %s -j ACCEPT", chainDivert))
 
-	socketRule := fmt.Sprintf("-A %s -p tcp -m socket --transparent -j %s", chainPrerouting, chainDivert)
+	socketRule := tproxySocketRuleSpec()
 	if !existing[socketRule] {
 		b.Add(socketRule)
 	}
@@ -249,9 +245,6 @@ func (i *IptablesManager) buildTProxyBatch(f ipFamily, routing map[string]vpnRou
 
 	if err := b.Commit(); err != nil {
 		return err
-	}
-	if err := i.ensureMangleInputBypass(f); err != nil {
-		return fmt.Errorf("mangle INPUT bypass: %w", err)
 	}
 	updateRoutingMap(routing, specs, tableMangle, f.iptablesCmd)
 	return nil

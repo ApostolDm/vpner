@@ -180,9 +180,6 @@ func (i *IptablesManager) ResetAfterFlush(table string, resetV4, resetV6 bool) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
-	if table == "" || table == tableMangle {
-		i.tproxyInfraReady = false
-	}
 	i.resetJumpState(table, resetV4, resetV6)
 }
 
