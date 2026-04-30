@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+const chainInput = "INPUT"
+
 func kernelRelease() string {
 	out, err := exec.Command("uname", "-r").Output()
 	if err != nil {
@@ -29,8 +31,15 @@ func loadKernelModule(path string) error {
 	return nil
 }
 
-// EnsureTProxySupport loads required kernel modules (xt_TPROXY, xt_socket).
-func EnsureTProxySupport() error {
+// EnsureTProxySupport loads required kernel modules (xt_TPROXY, xt_socket)
+// and verifies that the userspace tooling accepts the rule shapes our TPROXY
+// recipe needs for the configured IP families.
+//
+// Note: this catches missing modules, old iptables that don't know
+// `--transparent`, and kernels without IP_TRANSPARENT. It does NOT catch
+// runtime regressions in dst handling — those pass the probe but may still
+// drop traffic mid-flight; force `enable-tproxy: false` on such firmware.
+func EnsureTProxySupport(ipv6Enabled bool) error {
 	release := kernelRelease()
 	if release == "" {
 		return fmt.Errorf("failed to determine kernel release (uname -r)")
@@ -40,6 +49,52 @@ func EnsureTProxySupport() error {
 		if err := loadKernelModule(path); err != nil {
 			return fmt.Errorf("module %s: %w", mod, err)
 		}
+	}
+
+	if err := probeTProxyUserspace(familyV4); err != nil {
+		return fmt.Errorf("ipv4 tproxy probe: %w", err)
+	}
+	if ipv6Enabled {
+		if !commandExists(familyV6.iptablesCmd) {
+			return fmt.Errorf("ipv6 enabled but %s not found", familyV6.iptablesCmd)
+		}
+		if err := probeTProxyUserspace(familyV6); err != nil {
+			return fmt.Errorf("ipv6 tproxy probe: %w", err)
+		}
+	}
+	if err := probeTransparentBind(ipv6Enabled); err != nil {
+		return fmt.Errorf("transparent socket bind probe failed: %w", err)
+	}
+	return nil
+}
+
+const tproxyProbeChain = "VPN_TPROXY_PROBE"
+
+func probeTProxyUserspace(f ipFamily) error {
+	_ = run(f.iptablesCmd, "-t", tableMangle, "-F", tproxyProbeChain)
+	_ = run(f.iptablesCmd, "-t", tableMangle, "-X", tproxyProbeChain)
+
+	if err := run(f.iptablesCmd, "-t", tableMangle, "-N", tproxyProbeChain); err != nil {
+		return fmt.Errorf("create probe chain: %w", err)
+	}
+	defer func() {
+		_ = run(f.iptablesCmd, "-t", tableMangle, "-F", tproxyProbeChain)
+		_ = run(f.iptablesCmd, "-t", tableMangle, "-X", tproxyProbeChain)
+	}()
+
+	if err := run(f.iptablesCmd, "-t", tableMangle, "-A", tproxyProbeChain,
+		"-p", "tcp", "-m", "socket", "--transparent", "-j", "ACCEPT"); err != nil {
+		return fmt.Errorf("xt_socket --transparent not supported by iptables/kernel: %w", err)
+	}
+
+	if err := run(f.iptablesCmd, "-t", tableMangle, "-A", tproxyProbeChain,
+		"-p", "tcp", "-j", "TPROXY", "--on-port", "1", "--tproxy-mark", tproxyMark); err != nil {
+		return fmt.Errorf("xt_TPROXY tcp target not supported: %w", err)
+	}
+
+	if err := run(f.iptablesCmd, "-t", tableMangle, "-A", tproxyProbeChain,
+		"-p", "udp", "-j", "TPROXY", "--on-port", "1", "--tproxy-mark", tproxyMark); err != nil {
+		return fmt.Errorf("xt_TPROXY udp target not supported: %w", err)
 	}
 	return nil
 }
@@ -59,26 +114,40 @@ func (i *IptablesManager) ensureTProxyLocalRouting(f ipFamily) {
 	i.ipInfraReady = true
 }
 
-func (i *IptablesManager) ensureTProxyInfra(f ipFamily) error {
-	if i.tproxyInfraReady {
+// ensureMangleInputBypass inserts a high-priority ACCEPT in mangle INPUT for
+// packets carrying our tproxy fwmark. Vendor firmware (e.g. Keenetic NDM)
+// can hook a TLS-SNI DROP filter on dport 443 in mangle INPUT — TPROXY
+// preserves the original port, so without this bypass every hijacked HTTPS
+// connection would be dropped before reaching the local xray socket. The
+// ACCEPT terminates only mangle-INPUT processing; the packet still traverses
+// filter INPUT, which is where local delivery is normally accepted.
+func (i *IptablesManager) ensureMangleInputBypass(f ipFamily) error {
+	if listChainRules(f.iptablesCmd, tableMangle, chainInput)[inputBypassRuleSpec()] {
 		return nil
 	}
+	insert := []string{"-t", tableMangle, "-I", chainInput, "1",
+		"-m", "mark", "--mark", tproxyMark, "-j", "ACCEPT"}
+	return run(f.iptablesCmd, insert...)
+}
 
-	socketRule := fmt.Sprintf("-A %s -p tcp -m socket -j %s", chainPrerouting, chainDivert)
-	if !listPreroutingRules(f.iptablesCmd, tableMangle)[socketRule] {
-		b := newBatch(f.iptablesCmd, tableMangle)
-		b.Add(fmt.Sprintf(":%s - [0:0]", chainDivert))
-		b.Add(fmt.Sprintf("-A %s -j MARK --set-mark %s", chainDivert, tproxyMark))
-		b.Add(fmt.Sprintf("-A %s -j ACCEPT", chainDivert))
-		b.Add(fmt.Sprintf("-A %s -p tcp -m socket -j %s", chainPrerouting, chainDivert))
-		if err := b.Commit(); err != nil {
-			return err
-		}
+func (i *IptablesManager) cleanupMangleInputBypass(f ipFamily) {
+	args := []string{"-t", tableMangle, "-D", chainInput,
+		"-m", "mark", "--mark", tproxyMark, "-j", "ACCEPT"}
+	for run(f.iptablesCmd, args...) == nil {
 	}
+}
 
-	i.ensureTProxyLocalRouting(f)
-	i.tproxyInfraReady = true
-	return nil
+func (i *IptablesManager) cleanupLegacyTProxySocketRule(f ipFamily) {
+	_ = run(f.iptablesCmd, "-t", tableMangle, "-D", chainPrerouting,
+		"-p", "tcp", "-m", "socket", "-j", chainDivert)
+}
+
+func tproxySocketRuleSpec() string {
+	return fmt.Sprintf("-A %s -p tcp -m socket --transparent -j %s", chainPrerouting, chainDivert)
+}
+
+func inputBypassRuleSpec() string {
+	return fmt.Sprintf("-A %s -m mark --mark %s -j ACCEPT", chainInput, tproxyMark)
 }
 
 func addTProxyProtocolRules(b *iptablesBatch, chainName, iface, ipsetName string, port int) {
@@ -129,7 +198,10 @@ func (i *IptablesManager) cleanupTProxyIPRule(f ipFamily) {
 }
 
 func (i *IptablesManager) cleanupTProxyInfraForFamily(f ipFamily) {
-	_ = run(f.iptablesCmd, "-t", tableMangle, "-D", chainPrerouting, "-p", "tcp", "-m", "socket", "-j", chainDivert)
+	i.cleanupMangleInputBypass(f)
+	_ = run(f.iptablesCmd, "-t", tableMangle, "-D", chainPrerouting,
+		"-p", "tcp", "-m", "socket", "--transparent", "-j", chainDivert)
+	i.cleanupLegacyTProxySocketRule(f)
 	_ = run(f.iptablesCmd, "-t", tableMangle, "-F", chainDivert)
 	_ = run(f.iptablesCmd, "-t", tableMangle, "-X", chainDivert)
 	i.cleanupTProxyIPRule(f)

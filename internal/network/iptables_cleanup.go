@@ -14,6 +14,7 @@ func (i *IptablesManager) cleanupFamily(f ipFamily) {
 	i.cleanupOldChainsInTable(f, tableMangle)
 	i.cleanupOldIPRulesAndRoutes(f)
 	i.cleanupTProxyIPRule(f)
+	i.cleanupMangleInputBypass(f)
 }
 
 func (i *IptablesManager) cleanupOldIPRulesAndRoutes(f ipFamily) {

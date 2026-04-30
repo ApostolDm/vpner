@@ -62,13 +62,12 @@ var (
 )
 
 type IptablesManager struct {
-	mu               sync.Mutex
-	routingV4        map[string]vpnRoutingInfo
-	routingV6        map[string]vpnRoutingInfo
-	ipv6Enabled      bool
-	tproxyEnabled    bool
-	tproxyInfraReady bool // prevents duplicate PREROUTING socket-match rules
-	ipInfraReady     bool // ip rule + ip route survive iptables rebuilds; create once
+	mu            sync.Mutex
+	routingV4     map[string]vpnRoutingInfo
+	routingV6     map[string]vpnRoutingInfo
+	ipv6Enabled   bool
+	tproxyEnabled bool
+	ipInfraReady  bool // ip rule + ip route survive iptables rebuilds; create once
 }
 
 // ChainSpec describes one chain for batch iptables-restore.

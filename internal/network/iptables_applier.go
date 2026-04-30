@@ -158,7 +158,6 @@ func (i *IptablesManager) BatchApplyAllTProxy(specs []ChainSpec) error {
 	if err := i.batchApplyBothFamilies(specs, i.buildTProxyBatch); err != nil {
 		return err
 	}
-	i.tproxyInfraReady = true
 	i.ipInfraReady = true
 	return nil
 }
@@ -217,6 +216,11 @@ func (i *IptablesManager) applyXrayBatch(f ipFamily, routing map[string]vpnRouti
 func (i *IptablesManager) buildTProxyBatch(f ipFamily, routing map[string]vpnRoutingInfo, specs []ChainSpec) error {
 	i.ensureTProxyLocalRouting(f)
 
+	i.cleanupLegacyTProxySocketRule(f)
+	if err := i.ensureMangleInputBypass(f); err != nil {
+		return fmt.Errorf("mangle INPUT bypass: %w", err)
+	}
+
 	existing := listPreroutingRules(f.iptablesCmd, tableMangle)
 	b := newBatch(f.iptablesCmd, tableMangle)
 
@@ -224,7 +228,7 @@ func (i *IptablesManager) buildTProxyBatch(f ipFamily, routing map[string]vpnRou
 	b.Add(fmt.Sprintf("-A %s -j MARK --set-mark %s", chainDivert, tproxyMark))
 	b.Add(fmt.Sprintf("-A %s -j ACCEPT", chainDivert))
 
-	socketRule := fmt.Sprintf("-A %s -p tcp -m socket -j %s", chainPrerouting, chainDivert)
+	socketRule := tproxySocketRuleSpec()
 	if !existing[socketRule] {
 		b.Add(socketRule)
 	}

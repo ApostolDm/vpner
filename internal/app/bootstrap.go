@@ -29,7 +29,7 @@ func buildRuntimeGraph(cfg config.FullConfig) (*runtimeGraph, error) {
 
 	tproxyEnabled := cfg.Network.EnableTProxy
 	if tproxyEnabled {
-		if err := network.EnsureTProxySupport(); err != nil {
+		if err := network.EnsureTProxySupport(cfg.Network.EnableIPv6); err != nil {
 			log.Printf("WARNING: TPROXY disabled, falling back to REDIRECT: %v", err)
 			tproxyEnabled = false
 		}
