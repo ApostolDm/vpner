@@ -1,151 +1,119 @@
 # vpner
 
-[Читать на русском](README.ru.md)
+[Русская версия](README.ru.md)
 
-vpner is a compact networking stack for Entware/OpenWrt-style routers. It combines:
+`vpner` is a router-oriented networking stack for Entware/OpenWrt-style systems. It combines a daemon that manages DNS, Xray, iptables/ipset routing, and persistent unblock rules with small CLI utilities for administration and router hooks.
 
-- an opinionated gRPC daemon (`vpnerd`) that controls iptables/ipset rules, DNS filtering, and Xray chains;
-- a CLI (`vpnerctl`) that talks to the daemon over TCP or a UNIX socket;
-- packaging scripts that produce installable `.ipk` images for multiple CPU architectures.
+The project is designed first of all for Linux routers with `/opt`, and it fits Keenetic + Entware especially well.
 
-The whole system lives under `/opt/etc/vpner` by default and is designed to be dropped onto routers together with `xray-core`, `ipset`, and `iptables`.
+## What is included
 
----
+- `vpnerd` — the main daemon. Loads `vpner.yaml`, starts gRPC listeners, manages DNS, restores routing, and controls Xray chains.
+- `vpnerctl` — the management CLI. Talks to `vpnerd` over a UNIX socket or TCP.
+- `vpnerhookcli` — a small helper for router hooks. Reapplies routing after firmware/scripts rebuild `nat` or `mangle`.
+- `make.sh` — packaging script that builds router-friendly `.ipk` packages.
 
-## Highlights
+## What `vpner` does
 
-- **Xray orchestration** – import links (`vmess://`, `vless://`, `ss://`), assign autorun, start/stop chains, delete stale configs, and wire them into iptables automatically.
-- **DNS proxy with DoH upstreams** – UDP server with local caching, `custom-resolve` overrides that forward specific domains to arbitrary recursive resolvers, plus on-the-fly ipset population for unblock rules.
-- **Unblock rules** – YAML-driven domain/IP/CIDR lists mapped to chain names, synced to ipset with comments so deletions clean up immediately.
-- **Router-friendly packaging** – `make.sh` emits `.ipk` packages (config + init script + defaults) for any Go-supported architecture.
-- **`vpnerctl` CLI** – manage DNS, Xray, interfaces, and unblock lists via gRPC; store connection info in `~/.vpner.cnf` or pass flags.
-- **GitHub Releases** – tagging a version builds all binaries and attaches them to the release automatically.
-
----
-
-## Repository layout
-
-| Path | Description |
-| --- | --- |
-| `cmd/vpnerd` | Main daemon entrypoint. |
-| `cmd/vpnerctl` | CLI for managing `vpnerd`. |
-| `internal/app` | Runtime/bootstrap: service wiring, listener setup, lifecycle management. |
-| `internal/service/*` | High-level services for DNS, Xray, interfaces, and routing. |
-| `internal/dns`, `internal/doh`, `internal/xray`, `internal/network` | Low-level infrastructure: DNS server, DoH client, Xray manager, iptables/ipset logic. |
-| `internal/grpcserver` | gRPC transport layer and request handlers. |
-| `internal/config` | Configuration loader and defaults for `vpner.yaml`. |
-| `proto/` + `internal/grpc/` | Protobuf definitions and generated gRPC code. |
-| `tools/regenerate-proto` | Helper to re-run `protoc`. |
-| `make.sh` | Multi-arch packaging script that produces `.ipk` files and raw binaries. |
-| `.github/workflows/release.yml` | CI workflow that builds/attaches release artifacts. |
-
----
+- Creates and manages Xray chains from `vmess://`, `vless://`, and `ss://` links.
+- Runs a local DNS service with DoH upstreams and optional per-domain custom resolvers.
+- Stores unblock rules in YAML and synchronizes them to `ipset`.
+- Rebuilds iptables/ipset routing when the router flushes tables.
+- Supports both classic `REDIRECT` mode and `TPROXY` mode.
 
 ## Requirements
 
-- Router/host with `/opt` (Entware/OpenWrt) and `opkg`.
-- `xray-core`, `ipset`, `iptables`, `start-stop-daemon` (installed automatically when using the `.ipk`).
-- Golang 1.25+ if you plan to build from source.
-- `protoc` only if regenerating protobufs.
+- Linux router or host with root access.
+- `/opt` filesystem layout if you use the packaged install.
+- `opkg` for `.ipk` installation.
+- `xray` available in `PATH` on the router.
+- `iptables`, `ipset`, and `ip` tools available on the router.
+- Go `1.25.4+` if you build from source.
 
----
+## Recommended installation: `.ipk`
 
-## Installation
+1. Download the package for your target architecture from Releases.
+2. Copy it to the router and install it:
 
-### Option 1 – Install from release packages
-
-1. Download the `.ipk` for your architecture from the GitHub Releases page. Filenames follow `vpnerd_<version>_<arch>.ipk` (e.g. `vpnerd_0.0.1_arm64.ipk`).
-2. Copy it to the router and run:
    ```sh
    opkg update
    opkg install ./vpnerd_<version>_<arch>.ipk
    ```
-   Dependencies (`xray-core`, `ipset`, `iptables`, `start-stop-daemon`) will be pulled automatically.
-3. Files are installed under `/opt/etc/vpner/`:
-- `/opt/etc/vpner/vpnerd` – the daemon binary.
-- `/opt/etc/vpner/vpner.yaml` – created from `.example` on first install.
-- `/opt/etc/vpner/vpner_unblock.yaml` – created lazily by the daemon.
-- `/opt/etc/init.d/S95vpnerd` – init script.
-- `/opt/etc/ndm/netfilter.d/50-vpner` – Keenetic hook that replays routing whenever the NAT table is rebuilt (it invokes `vpshookcli`).
-4. Control the service via the init script:
+
+3. After installation, the router will have:
+
+   | Path | Purpose |
+   | --- | --- |
+   | `/opt/etc/vpner/vpnerd` | Daemon binary |
+   | `/opt/etc/vpner/vpnerhookcli` | Hook helper binary |
+   | `/opt/etc/vpner/vpner.yaml.example` | Default config template |
+   | `/opt/etc/vpner/vpner.yaml` | Active config, created on first install if missing |
+   | `/opt/etc/vpner/vpner_unblock.yaml` | Persistent unblock rules file, created when rules are written |
+   | `/opt/etc/vpner/xray/` | Stored Xray chain configs |
+   | `/opt/etc/init.d/S95vpnerd` | Init script |
+   | `/opt/etc/ndm/netfilter.d/50-vpner` | Keenetic hook that replays routing after `nat`/`mangle` rebuilds |
+
+4. Edit `/opt/etc/vpner/vpner.yaml`.
+5. Start the service:
+
    ```sh
-   /opt/etc/init.d/S95vpnerd start   # stop|restart|status
+   /opt/etc/init.d/S95vpnerd start
    ```
 
-### Keenetic DNS override
-
-If you install vpner on Keenetic firmware you must force the router to push all DNS traffic through Entware. Right after installing the package run the following commands in the Entware shell:
+Useful service commands:
 
 ```sh
-opkg dns-override          # switch Keenetic DNS to /opt
-system configuration save  # persist the change
-reboot                     # apply it after a restart
+/opt/etc/init.d/S95vpnerd stop
+/opt/etc/init.d/S95vpnerd restart
+/opt/etc/init.d/S95vpnerd status
+tail -f /opt/var/log/vpnerd.log
 ```
 
-After reboot every LAN client will use the DNS server shipped with `vpnerd`, and the bundled ndm hook (`/opt/etc/ndm/netfilter.d/50-vpner`) will automatically call `/opt/etc/vpner/vpshookcli --unix /tmp/vpner.sock` whenever Keenetic rebuilds the `nat` table.
+## Keenetic notes
 
-### Option 2 – Build manually (vpnerd + vpnerctl)
+### DNS override
 
-1. Ensure Go 1.25+ is available on your machine.
-2. Clone the repo and run:
-   ```sh
-   go build -ldflags="-s -w" -o vpnerd ./cmd/vpnerd
-   go build -ldflags="-s -w" -o vpnerctl ./cmd/vpnerctl
-   ```
-3. Copy `vpnerd` to the router (e.g. `/opt/etc/vpner/vpnerd`), provide a config at `/opt/etc/vpner/vpner.yaml`, and create your own init script/service wrapper.
-
-### Packaging with `make.sh`
-
-`make.sh` automates the entire router-friendly packaging flow:
+If you run `vpner` on Keenetic with Entware, enable the Keenetic DNS override to `/opt` after installation.
+Run the following commands from the **Keenetic CLI / Web CLI**, not from the Entware shell:
 
 ```sh
-ARCH_LIST="arm64 mipsle:mipsel" ./make.sh
+opkg dns-override
+system configuration save
+reboot
 ```
 
-Universal package (single `.ipk` containing multiple architectures):
+After reboot, LAN clients will use the DNS service handled by `vpnerd`, and the installed NDM hook will automatically call `vpnerhookcli` whenever Keenetic rebuilds `nat` or `mangle`.
 
-```sh
-ARCH_LIST="arm64 mipsle:mipsel-3.4 mips:mips-3.4" UNIVERSAL_IPK=1 ./make.sh
+### TPROXY on Keenetic
+
+If you want transparent proxying through `TPROXY`, set:
+
+```yaml
+network:
+  enable-tproxy: true
 ```
 
-Produces:
-- `build/vpnerd_<ver>_arm64.ipk`, `build/vpnerd_<ver>_mipsel.ipk`.
-- `build/vpnerd_<ver>_all.ipk` when `UNIVERSAL_IPK=1`.
-- `vpnerd`, `vpnerd-arm64`, `vpnerd-mipsle` in the repo root for manual flashing.
+Important for Keenetic:
 
-Key environment variables:
+- `TPROXY` works only if the KeeneticOS **Kernel modules for Netfilter** component is installed in `General System Settings -> Component options`.
+- In practice, `vpnerd` needs the kernel support behind `xt_TPROXY` and `xt_socket`.
+- If the required netfilter modules are missing or unsupported, `vpnerd` logs a warning and automatically falls back to `REDIRECT` mode.
 
-| Variable | Description | Default |
-| --- | --- | --- |
-| `ARCH_LIST` | Space-separated `goarch[:opkg-arch]` pairs to build. | `arm64` |
-| `GOOS` | Target OS (shared by all arches). | `linux` |
-| `INSTALL_PREFIX` | Where files land inside the package. | `/opt` |
-| `PKG_VERSION` | Package version string. | `git describe` |
-| `OPKG_DEPENDS` | Dependencies declared in `control`. | `"xray-core, ipset, iptables"` |
-| `INIT_NAME` | Name of init script under `/opt/etc/init.d`. | `S95vpnerd` |
-| `UPX_ARGS` | Arguments passed to `upx`. | `--best` |
-| `DEFAULT_OPKG_ARCH` | Default opkg architecture if spec does not include `:arch`. | *(empty)* |
-| `UNIVERSAL_IPK` | When set, also emit a single `*_all.ipk` that bundles binaries for all `ARCH_LIST` entries. | *(empty)* |
-| `UNIVERSAL_ARCH` | Architecture label for the universal package. | `all` |
-| `TAR_FORMAT` | Tar format used when creating `control.tar.gz`, `data.tar.gz`, and the final `.ipk`. Use `ustar` (default) to avoid Pax headers on macOS. | `ustar` |
-
-Tip: run `opkg print-architecture` on the router to see the exact strings (e.g. `aarch64_cortex-a53`). Either set per-entry overrides (`ARCH_LIST="arm64:aarch64_cortex-a53"`) or export `DEFAULT_OPKG_ARCH=aarch64_cortex-a53` before invoking `make.sh`.
-
----
+This is the exact case to check first if `enable-tproxy: true` does not have any effect on Keenetic.
 
 ## Configuration
 
-All settings live in `/opt/etc/vpner/vpner.yaml`. Example:
+The main config file is `/opt/etc/vpner/vpner.yaml`.
+
+Minimal example:
 
 ```yaml
 dnsServer:
   port: 53
-  max-concurrent-connections: 200
+  max-concurrent-connections: 100
   verbose: false
   running: true
-  custom-resolve:
-    "1.1.1.1:53":
-      - "*.example.internal"
+  custom-resolve: {}
 
 doh:
   servers:
@@ -164,30 +132,39 @@ grpc:
   unix:
     enabled: true
     path: "/tmp/vpner.sock"
-    auth: false
   auth:
     password: "secret123"
 
 unblock-rules-path: "/opt/etc/vpner/vpner_unblock.yaml"
+
 network:
   lan-interfaces:
     - "br0"
   enable-ipv6: false
+  enable-tproxy: false
   ipset-debug: false
   ipset-stale-queries: 100
 ```
 
-**Sections:**
-- `dnsServer` – embedded UDP DNS proxy. `custom-resolve` maps wildcard domains to plain resolvers (`ip:port`). When `running: true`, the daemon autostarts the DNS service.
-- `doh` – upstream DoH endpoints plus fallback UDP resolvers. Cache expiry in seconds.
-- `grpc` – server endpoints for `vpnerctl`. TCP listener supports optional password (`authorization` metadata). UNIX socket can be auth-free.
-- `unblock-rules-path` – YAML file storing domain/IP/CIDR rules. Each rule maps to an interface/chain and is synchronized into ipset with comments.
-- `network.lan-interfaces` – interfaces used for iptables redirection when applying Xray routes.
-- `network.enable-ipv6` – enable IPv6 ipset/ip6tables/ip -6 routing (default: false).
-- `network.ipset-debug` – log reasons for ipset add/remove decisions (default: false).
-- `network.ipset-stale-queries` – remove IPs from ipset only after they are missing from this many DNS answers (0 = immediate removal; default: 0).
+Important settings:
 
-The unblock file (`/opt/etc/vpner/vpner_unblock.yaml`) is created on demand and can include rules like:
+- `dnsServer.running` — start the embedded DNS server automatically on daemon startup.
+- `dnsServer.custom-resolve` — map resolver addresses like `1.1.1.1:53` to domain patterns.
+- `doh.servers` — DoH upstreams.
+- `doh.resolvers` — classic DNS resolvers used for bootstrap/fallback logic.
+- `grpc.tcp.enabled` — expose gRPC over TCP.
+- `grpc.tcp.auth` — require the password from `grpc.auth.password` on the TCP listener.
+- `grpc.unix.path` — local UNIX socket path for router-local administration.
+- `network.lan-interfaces` — LAN interfaces whose traffic should be intercepted.
+- `network.enable-ipv6` — enable IPv6 iptables/ipset/ip-rule handling.
+- `network.enable-tproxy` — switch Xray/routing to transparent proxy mode when supported.
+- `network.ipset-stale-queries` — delay removal of domain-derived IPs from `ipset`.
+
+## Unblock rules file
+
+`unblock-rules-path` points to a YAML file that stores domain/IP/CIDR rules grouped by VPN type and chain.
+
+Example:
 
 ```yaml
 Xray:
@@ -196,94 +173,157 @@ Xray:
     - "203.0.113.45"
 OpenVPN:
   myvpn:
-    - "internal.example.com"
+    - "*.example.org"
 ```
 
-Pattern validation matches `vpnerctl unblock` behavior (`*` at start/end only); IPs/CIDRs are stored with `timeout 0`.
+Notes:
 
----
+- Domain patterns must match the project validation rules.
+- IPs and CIDRs are stored as static `ipset` entries.
+- The file is updated automatically when you add or delete rules through `vpnerctl`.
 
-## Running & managing
+## Managing the daemon
 
-1. Start/stop the service via the init script or `start-stop-daemon` commands.
-2. Interact with the daemon from any machine using `vpnerctl`. By default it tries `~/.vpner.cnf`:
-   ```yaml
-   addr: "router-hostname:50051"
-   password: "secret123"
-   timeout: "30s"
-   default-chain: "ovpn_br0"
-   # or specify unix: "/tmp/vpner.sock"
-   ```
-   Flags `--addr`, `--unix`, `--password`, `--timeout`, `--default-chain`, `-c` override these values per command (plain numbers are seconds).
+`vpnerd` starts the following automatically:
 
-### Key `vpnerctl` commands
+- DNS service, if `dnsServer.running: true`
+- all Xray chains with `auto_run: true`
+- routing restore for already configured chains
 
-| Command | Description |
-| --- | --- |
-| `vpnerctl dns manage <start|stop|status|restart>` | Control the embedded DNS service. |
-| `vpnerctl unblock list` | Show all unblock chains/rules. |
-| `vpnerctl unblock add --chain <name> <pattern>` | Add domain/IP/CIDR to a chain; duplicates and overlaps are rejected. |
-| `vpnerctl unblock del <pattern>` | Remove a pattern (domain or IP). |
-| `vpnerctl unblock import-file --chain <name> --file rules.txt` | Bulk import; file may contain comments (`#`). |
-| `vpnerctl unblock delete-file --file rules.txt` | Bulk delete.
-| `vpnerctl interface scan` / `list` / `add` / `del` | Discover and register router interfaces. |
-| `vpnerctl xray list` | Show chains, host, port, autorun and status. |
-| `vpnerctl xray create <link> [--autorun]` | Import a new Xray config from link. |
-| `vpnerctl xray start|stop|status <chain>` | Control chains manually. |
-| `vpnerctl xray delete <chain>` | Remove config and related unblock chain. |
-| `vpnerctl xray autorun <chain> --enable|--disable` | Toggle autorun on existing configs. |
-| `vpnerctl hook restore` | Reapply iptables/ipset routing for all running VPN hooks (useful for Keenetic ndm hooks). |
+The default daemon start command is:
 
-### Router hooks (`vpshookcli`)
-
-The package installs `/opt/etc/vpner/vpshookcli` – a tiny binary intended for automation scripts. It uses the same config resolution as `vpnerctl` (defaults to `/tmp/vpner.sock` / `:50051`). Running it triggers `HookRestore`, which re-applies routing for every running chain.
-
-The opkg package already drops `/opt/etc/ndm/netfilter.d/50-vpner`, so Keenetic automatically runs `vpshookcli` whenever the firewall (iptables nat table) is rebuilt. OpenWrt/other systems can call the same binary from cron or custom rc scripts.
-
-Every time Keenetic rebuilds the firewall, the hook replays vpner routing instantly. OpenWrt users can wire the same binary into `/etc/rc.local` or cron.
-
-All commands return friendly messages; errors propagate as `GenericResponse_Error` with context.
-
----
-
-## Building & testing
-
-- Run `gofmt` on touched files and `GOCACHE=$(mktemp -d) go test ./...` before committing.
-- Regenerate protobufs after editing `proto/*.proto`: `go run ./tools/regenerate-proto`.
-- `make.sh` handles cross-compilation; you can also set `GOOS/GOARCH` manually for `vpnerctl`:
-  ```sh
-  GOOS=linux GOARCH=amd64 go build ./cmd/vpnerctl
-  ```
-
----
-
-## CI / Releases
-
-`.github/workflows/release.yml` runs on tagged pushes (`v*`) or manual dispatch. It:
-1. Builds `.ipk` packages via `make.sh` (using `ARCH_LIST` defined in the workflow).
-2. Builds `vpnerctl` binaries for Linux amd64/arm64, macOS arm64, and Windows amd64.
-3. Builds `vpshookcli` binaries for every router architecture in `ARCH_LIST`.
-4. Uploads artifacts to the workflow run and attaches them to the GitHub Release corresponding to the tag.
-
-To publish a release:
 ```sh
-git tag v1.2.3
-git push --tags
+/opt/etc/vpner/vpnerd --config /opt/etc/vpner/vpner.yaml
 ```
-GitHub Actions will take care of the rest.
 
----
+## `vpnerctl`
 
-## Support & contributions
+The `.ipk` package installs `vpnerd` and `vpnerhookcli`, but **does not install `vpnerctl`**. Build it separately if you want the admin CLI.
 
-Bug reports, feature requests, and PRs are welcome. Please include:
-- your router model / architecture;
-- `vpner.yaml` snippets (redact secrets);
-- logs from `/opt/etc/init.d/S95vpnerd status` or `vpnerctl` commands.
+Build:
 
-Before submitting patches:
-1. Run `go test ./...` as shown above.
-2. Ensure `make.sh` still finishes successfully (or at least `go build ./cmd/vpnerd` / `./cmd/vpnerctl`).
-3. Explain any packaging/runtime changes in the PR description.
+```sh
+go build -o vpnerctl ./cmd/vpnerctl
+```
 
-License: see `LICENSE` in the repository.
+Optional CLI config file: `~/.vpner.cnf`
+
+```yaml
+unix: "/tmp/vpner.sock"
+addr: "router.example:50051"
+password: "secret123"
+timeout: "5s"
+default-chain: "xray1"
+```
+
+Notes:
+
+- If `unix` is set, `vpnerctl` uses the UNIX socket first.
+- If neither `unix` nor `addr` is set, the defaults are `/tmp/vpner.sock` and `:50051`.
+- TCP gRPC uses insecure transport in the current implementation. Keep it on a trusted network, or wrap it in SSH/VPN.
+
+Common commands:
+
+```sh
+vpnerctl dns status
+vpnerctl dns restart
+
+vpnerctl xray list
+vpnerctl xray create 'vless://...'
+vpnerctl xray start xray1
+vpnerctl xray stop xray1
+vpnerctl xray autorun xray1 --enable
+vpnerctl xray delete xray1
+
+vpnerctl interface scan
+vpnerctl interface list
+
+vpnerctl unblock list
+vpnerctl unblock add --chain xray1 "*.netflix.com"
+vpnerctl unblock del "*.netflix.com"
+vpnerctl unblock import-file --chain xray1 --file rules.txt
+vpnerctl unblock delete-file --file rules.txt
+```
+
+## `vpnerhookcli`
+
+`vpnerhookcli` is meant for automation and router hooks. In normal Keenetic installation you usually do not need to run it manually because the package installs `/opt/etc/ndm/netfilter.d/50-vpner`.
+
+Manual example:
+
+```sh
+/opt/etc/vpner/vpnerhookcli --unix /tmp/vpner.sock --family ipv4 --table nat
+```
+
+Accepted values:
+
+- `--family`: `ipv4`, `ipv6`, `v4`, `v6`
+- `--table`: `nat`, `mangle`
+
+## Build from source
+
+Build all user-facing binaries:
+
+```sh
+go build -o vpnerd ./cmd/vpnerd
+go build -o vpnerhookcli ./cmd/vpnerhookcli
+go build -o vpnerctl ./cmd/vpnerctl
+```
+
+Run tests:
+
+```sh
+go test ./...
+```
+
+## Build `.ipk` packages
+
+Basic example:
+
+```sh
+ARCH_LIST="arm64:aarch64_cortex-a53 mipsle:mipsel_24kc" ./make.sh
+```
+
+Universal package:
+
+```sh
+ARCH_LIST="arm64:aarch64_cortex-a53 mipsle:mipsel_24kc mips:mips_24kc" UNIVERSAL_IPK=1 ./make.sh
+```
+
+Useful variables:
+
+- `ARCH_LIST` — target architectures in `goarch[:opkg-arch]` format.
+- `DEFAULT_OPKG_ARCH` — default opkg architecture when `ARCH_LIST` entries omit `:opkg-arch`.
+- `INSTALL_PREFIX` — package install prefix, `/opt` by default.
+- `PKG_VERSION` — package version string.
+- `UNIVERSAL_IPK` — build an additional `*_all.ipk`.
+
+Build output:
+
+- `build/*.ipk`
+- `vpnerd`, `vpnerd-<goarch>`
+- `vpnerhookcli`, `vpnerhookcli-<goarch>`
+
+## Repository layout
+
+| Path | Purpose |
+| --- | --- |
+| `cmd/vpnerd` | Daemon entrypoint |
+| `cmd/vpnerctl` | Admin CLI |
+| `cmd/vpnerhookcli` | Hook helper |
+| `internal/app` | Runtime/bootstrap |
+| `internal/network` | iptables/ipset/TPROXY logic |
+| `internal/dns` | Embedded DNS server |
+| `internal/doh` | DoH resolver |
+| `internal/xray` | Xray config/process management |
+| `internal/grpcserver` | gRPC handlers |
+| `internal/config` | YAML config loading |
+| `proto/` | Protobuf definitions |
+| `make.sh` | `.ipk` packaging |
+
+## Troubleshooting
+
+- `xray binary not found in PATH`: install `xray-core` and make sure `xray` is visible in the daemon environment.
+- DNS does not start on port `53`: another DNS service is already bound to that port.
+- `enable-tproxy: true` has no effect on Keenetic: first verify the **Kernel modules for Netfilter** component in KeeneticOS.
+- `vpnerctl` cannot reach the daemon: check whether you are connecting over `/tmp/vpner.sock` or TCP and whether the password matches `grpc.auth.password`.
