@@ -117,6 +117,30 @@ func (s *VpnerServer) XrayCreate(_ context.Context, req *grpcpb.XrayCreateReques
 	return successGeneric(fmt.Sprintf("Xray created successfully: %s", name)), nil
 }
 
+func (s *VpnerServer) XrayUpdate(_ context.Context, req *grpcpb.XrayUpdateRequest) (*grpcpb.GenericResponse, error) {
+	if req.ChainName == "" {
+		return errorGeneric("Chain name is required"), nil
+	}
+	if req.Link == "" {
+		return errorGeneric("Subscription link is required"), nil
+	}
+	if !s.xrayService.IsChain(req.ChainName) {
+		return errorGeneric(fmt.Sprintf("No such Xray chain: %s", req.ChainName)), nil
+	}
+	if err := s.xrayService.Update(req.ChainName, req.Link); err != nil {
+		return errorGeneric(fmt.Sprintf("Failed to update Xray: %v", err)), nil
+	}
+	if s.xrayService.IsRunning(req.ChainName) {
+		if err := s.xrayService.StopOne(req.ChainName); err != nil {
+			return errorGeneric(fmt.Sprintf("Failed to stop Xray for restart: %v", err)), nil
+		}
+		if err := s.xrayService.StartOne(req.ChainName); err != nil {
+			return errorGeneric(fmt.Sprintf("Xray updated as %s but failed to restart: %v", req.ChainName, err)), nil
+		}
+	}
+	return successGeneric(fmt.Sprintf("Xray updated successfully: %s", req.ChainName)), nil
+}
+
 func (s *VpnerServer) XrayDelete(_ context.Context, req *grpcpb.XrayRequest) (*grpcpb.GenericResponse, error) {
 	if s.xrayService.IsRunning(req.ChainName) {
 		if err := s.xrayService.StopOne(req.ChainName); err != nil {

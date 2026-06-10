@@ -2,7 +2,10 @@ package xray
 
 import (
 	"encoding/base64"
+	"os"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestParseVLESSExtractsFields(t *testing.T) {
@@ -108,6 +111,51 @@ func TestFixVLESSUserEncryption(t *testing.T) {
 	user := users[0].(map[string]interface{})
 	if user["encryption"] != "none" {
 		t.Fatalf("expected encryption=none, got %#v", user["encryption"])
+	}
+}
+
+func TestUpdateXrayPreservesPortAndAutoRun(t *testing.T) {
+	manager, err := newXrayManager(t.TempDir(), false)
+	if err != nil {
+		t.Fatalf("newXrayManager: %v", err)
+	}
+
+	if err := manager.checkDependencies(); err != nil {
+		t.Skipf("xray dependency unavailable: %v", err)
+	}
+
+	const link = "vless://11111111-1111-1111-1111-111111111111@old.example.com:8443?type=tcp&security=none#first"
+	cfg, err := manager.buildConfig(link, 4321)
+	if err != nil {
+		t.Fatalf("buildConfig: %v", err)
+	}
+	cfg.AutoRun = true
+	cfg.Metadata.SocksPort = 4321
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if err := os.WriteFile(manager.configPath("xray1"), data, 0644); err != nil {
+		t.Fatalf("write seed config: %v", err)
+	}
+
+	const newLink = "vless://22222222-2222-2222-2222-222222222222@new.example.com:9443?type=tcp&security=none#second"
+	if err := manager.UpdateXray("xray1", newLink); err != nil {
+		t.Fatalf("UpdateXray: %v", err)
+	}
+
+	info, err := manager.GetXrayInfo("xray1")
+	if err != nil {
+		t.Fatalf("GetXrayInfo: %v", err)
+	}
+	if info.InboundPort != 4321 {
+		t.Fatalf("inbound port changed: got %d, want 4321", info.InboundPort)
+	}
+	if !info.AutoRun {
+		t.Fatalf("autorun flag not preserved")
+	}
+	if info.Host != "new.example.com" {
+		t.Fatalf("outbound host not updated: got %s", info.Host)
 	}
 }
 

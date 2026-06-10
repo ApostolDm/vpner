@@ -28,6 +28,7 @@ const (
 	VpnerManager_InterfaceDel_FullMethodName   = "/vpner.VpnerManager/InterfaceDel"
 	VpnerManager_DnsManage_FullMethodName      = "/vpner.VpnerManager/DnsManage"
 	VpnerManager_XrayCreate_FullMethodName     = "/vpner.VpnerManager/XrayCreate"
+	VpnerManager_XrayUpdate_FullMethodName     = "/vpner.VpnerManager/XrayUpdate"
 	VpnerManager_XrayDelete_FullMethodName     = "/vpner.VpnerManager/XrayDelete"
 	VpnerManager_XrayList_FullMethodName       = "/vpner.VpnerManager/XrayList"
 	VpnerManager_XrayManage_FullMethodName     = "/vpner.VpnerManager/XrayManage"
@@ -52,6 +53,7 @@ type VpnerManagerClient interface {
 	DnsManage(ctx context.Context, in *ManageRequest, opts ...grpc.CallOption) (*GenericResponse, error)
 	// xray manager
 	XrayCreate(ctx context.Context, in *XrayCreateRequest, opts ...grpc.CallOption) (*GenericResponse, error)
+	XrayUpdate(ctx context.Context, in *XrayUpdateRequest, opts ...grpc.CallOption) (*GenericResponse, error)
 	XrayDelete(ctx context.Context, in *XrayRequest, opts ...grpc.CallOption) (*GenericResponse, error)
 	XrayList(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*XrayListResponse, error)
 	XrayManage(ctx context.Context, in *XrayManageRequest, opts ...grpc.CallOption) (*GenericResponse, error)
@@ -157,6 +159,16 @@ func (c *vpnerManagerClient) XrayCreate(ctx context.Context, in *XrayCreateReque
 	return out, nil
 }
 
+func (c *vpnerManagerClient) XrayUpdate(ctx context.Context, in *XrayUpdateRequest, opts ...grpc.CallOption) (*GenericResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GenericResponse)
+	err := c.cc.Invoke(ctx, VpnerManager_XrayUpdate_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *vpnerManagerClient) XrayDelete(ctx context.Context, in *XrayRequest, opts ...grpc.CallOption) (*GenericResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GenericResponse)
@@ -224,6 +236,7 @@ type VpnerManagerServer interface {
 	DnsManage(context.Context, *ManageRequest) (*GenericResponse, error)
 	// xray manager
 	XrayCreate(context.Context, *XrayCreateRequest) (*GenericResponse, error)
+	XrayUpdate(context.Context, *XrayUpdateRequest) (*GenericResponse, error)
 	XrayDelete(context.Context, *XrayRequest) (*GenericResponse, error)
 	XrayList(context.Context, *Empty) (*XrayListResponse, error)
 	XrayManage(context.Context, *XrayManageRequest) (*GenericResponse, error)
@@ -265,6 +278,9 @@ func (UnimplementedVpnerManagerServer) DnsManage(context.Context, *ManageRequest
 }
 func (UnimplementedVpnerManagerServer) XrayCreate(context.Context, *XrayCreateRequest) (*GenericResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method XrayCreate not implemented")
+}
+func (UnimplementedVpnerManagerServer) XrayUpdate(context.Context, *XrayUpdateRequest) (*GenericResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method XrayUpdate not implemented")
 }
 func (UnimplementedVpnerManagerServer) XrayDelete(context.Context, *XrayRequest) (*GenericResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method XrayDelete not implemented")
@@ -464,6 +480,24 @@ func _VpnerManager_XrayCreate_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _VpnerManager_XrayUpdate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(XrayUpdateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VpnerManagerServer).XrayUpdate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VpnerManager_XrayUpdate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VpnerManagerServer).XrayUpdate(ctx, req.(*XrayUpdateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _VpnerManager_XrayDelete_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(XrayRequest)
 	if err := dec(in); err != nil {
@@ -596,6 +630,10 @@ var VpnerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "XrayCreate",
 			Handler:    _VpnerManager_XrayCreate_Handler,
+		},
+		{
+			MethodName: "XrayUpdate",
+			Handler:    _VpnerManager_XrayUpdate_Handler,
 		},
 		{
 			MethodName: "XrayDelete",

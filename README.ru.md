@@ -230,6 +230,7 @@ vpnerctl dns restart
 
 vpnerctl xray list
 vpnerctl xray create 'vless://...'
+vpnerctl xray update xray1 'vless://...'   # сменить сервер, сохранив пул правил цепочки
 vpnerctl xray start xray1
 vpnerctl xray stop xray1
 vpnerctl xray autorun xray1 --enable

@@ -132,6 +132,10 @@ func (x *Service) Create(link string, autoRun bool) (string, error) {
 	return x.manager.CreateXray(link, autoRun)
 }
 
+func (x *Service) Update(name, link string) error {
+	return x.manager.UpdateXray(name, link)
+}
+
 func (x *Service) Delete(name string) error {
 	return x.manager.DeleteXray(name)
 }

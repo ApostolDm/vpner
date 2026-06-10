@@ -133,6 +133,55 @@ func (x *XrayManager) CreateXray(link string, autoRun bool) (string, error) {
 	return name, nil
 }
 
+func (x *XrayManager) UpdateXray(name, link string) error {
+	x.mu.Lock()
+	defer x.mu.Unlock()
+
+	if err := x.checkDependencies(); err != nil {
+		return err
+	}
+
+	path := x.configPath(name)
+	existing, err := x.readConfig(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("no such xray config: %s", name)
+		}
+		return err
+	}
+
+	port := existing.Metadata.SocksPort
+	if port == 0 {
+		port = extractInboundPort(existing.Inbounds)
+	}
+	if port == 0 {
+		if port, err = x.findFreePort(1080, 20000); err != nil {
+			return err
+		}
+	}
+
+	config, err := x.buildConfig(link, port)
+	if err != nil {
+		return err
+	}
+
+	if x.isDuplicateExcept(config, name) {
+		return fmt.Errorf("duplicate configuration exists")
+	}
+
+	config.AutoRun = existing.AutoRun
+	config.Metadata.SocksPort = port
+
+	data, err := yaml.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal config: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return fmt.Errorf("failed to write config: %w", err)
+	}
+	return nil
+}
+
 func (x *XrayManager) DeleteXray(name string) error {
 	x.mu.Lock()
 	defer x.mu.Unlock()
@@ -354,12 +403,22 @@ func (x *XrayManager) generateUniqueName() string {
 }
 
 func (x *XrayManager) isDuplicate(cfg *xrayFile) bool {
+	return x.isDuplicateExcept(cfg, "")
+}
+
+// isDuplicateExcept reports whether another chain (other than excludeName)
+// already carries the same outbounds. excludeName lets an update skip the chain
+// being rewritten so re-sending its current link is not flagged as a duplicate.
+func (x *XrayManager) isDuplicateExcept(cfg *xrayFile, excludeName string) bool {
 	entries, err := os.ReadDir(x.baseDir)
 	if err != nil {
 		return false
 	}
 	for _, f := range entries {
 		if f.IsDir() || !strings.HasSuffix(f.Name(), ".yaml") {
+			continue
+		}
+		if excludeName != "" && strings.TrimSuffix(f.Name(), ".yaml") == excludeName {
 			continue
 		}
 		existing, err := x.readConfig(filepath.Join(x.baseDir, f.Name()))

@@ -230,6 +230,7 @@ vpnerctl dns restart
 
 vpnerctl xray list
 vpnerctl xray create 'vless://...'
+vpnerctl xray update xray1 'vless://...'   # swap server, keep the chain's rule pool
 vpnerctl xray start xray1
 vpnerctl xray stop xray1
 vpnerctl xray autorun xray1 --enable

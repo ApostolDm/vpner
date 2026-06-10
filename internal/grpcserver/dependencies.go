@@ -32,6 +32,7 @@ type XrayController interface {
 	ListInfo() (map[string]xraypkg.XrayInfoDetails, error)
 	GetInfo(string) (xraypkg.XrayInfoDetails, error)
 	Create(link string, autoRun bool) (string, error)
+	Update(name, link string) error
 	Delete(name string) error
 	SetAutorun(name string, autoRun bool) error
 	IsChain(name string) bool

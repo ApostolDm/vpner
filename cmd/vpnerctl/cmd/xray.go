@@ -18,6 +18,7 @@ var xrayCmd = &cobra.Command{
 func init() {
 	xrayCmd.AddCommand(xrayListCmd())
 	xrayCmd.AddCommand(xrayCreateCmd())
+	xrayCmd.AddCommand(xrayUpdateCmd())
 	xrayCmd.AddCommand(xrayDeleteCmd())
 	xrayCmd.AddCommand(xrayStartStopCmd("start", grpcpb.ManageAction_START))
 	xrayCmd.AddCommand(xrayStartStopCmd("stop", grpcpb.ManageAction_STOP))
@@ -83,6 +84,28 @@ func xrayCreateCmd() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&autorun, "autorun", false, "start chain after creation")
 	return cmd
+}
+
+func xrayUpdateCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "update <chain> <link>",
+		Short: "Update chain config from a new subscription link (keeps rules)",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			chain := args[0]
+			link := args[1]
+			return withClient(func(ctx context.Context, c grpcpb.VpnerManagerClient) error {
+				resp, err := c.XrayUpdate(ctx, &grpcpb.XrayUpdateRequest{
+					ChainName: chain,
+					Link:      link,
+				})
+				if err != nil {
+					return err
+				}
+				return printGenericResponse(resp)
+			})
+		},
+	}
 }
 
 func xrayDeleteCmd() *cobra.Command {
