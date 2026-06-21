@@ -8,25 +8,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ApostolDmitry/vpner/internal/conf"
 	"github.com/ApostolDmitry/vpner/internal/logx"
 	"github.com/ApostolDmitry/vpner/internal/matcher"
 	"github.com/miekg/dns"
 )
 
 const defaultCustomResolveTimeout = 3 * time.Second
-
-type ServerConfig struct {
-	Port                 int                 `yaml:"port"`
-	Listen               string              `yaml:"listen"`
-	MaxConcurrentConn    int                 `yaml:"max-concurrent-connections"`
-	Verbose              bool                `yaml:"verbose"`
-	CustomResolve        map[string][]string `yaml:"custom-resolve"`
-	CustomResolveTimeout int                 `yaml:"custom-resolve-timeout"`
-	Cache                *bool               `yaml:"cache"`
-	CacheMaxEntries      int                 `yaml:"cache-max-entries"`
-	RateLimit            int                 `yaml:"rate-limit"`
-	Running              bool                `yaml:"running"`
-}
 
 type compiledResolverRule struct {
 	Upstream string
@@ -38,7 +26,7 @@ type IPSyncer interface {
 }
 
 type Server struct {
-	config        ServerConfig
+	config        conf.ServerConfig
 	connSemaphore chan struct{}
 	ipManager     IPSyncer
 	customRules   []compiledResolverRule
@@ -51,7 +39,7 @@ type Server struct {
 	notifyStarted func()
 }
 
-func NewServer(cfg ServerConfig, ipManager IPSyncer, resolver *Upstream) *Server {
+func NewServer(cfg conf.ServerConfig, ipManager IPSyncer, resolver *Upstream) *Server {
 	s := &Server{
 		config:        cfg,
 		connSemaphore: make(chan struct{}, cfg.MaxConcurrentConn),

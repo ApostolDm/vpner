@@ -4,12 +4,14 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"github.com/ApostolDmitry/vpner/internal/conf"
 )
 
 func TestNormalizeConfigDefaults(t *testing.T) {
 	t.Parallel()
 
-	cfg := normalizeConfig(UpstreamConfig{
+	cfg := normalizeConfig(conf.UpstreamConfig{
 		Servers:   []string{" https://a/dns-query ", "https://a/dns-query", ""},
 		Resolvers: []string{"1.1.1.1", "1.1.1.1"},
 	})
@@ -64,7 +66,7 @@ func TestCacheFreshAndStale(t *testing.T) {
 	t.Parallel()
 
 	r := &Upstream{
-		config: UpstreamConfig{CacheTTL: 300, StaleTTL: 300, MaxCacheEntries: 8},
+		config: conf.UpstreamConfig{CacheTTL: 300, StaleTTL: 300, MaxCacheEntries: 8},
 		cache:  make(map[string]cachedEntry),
 	}
 	ips := []net.IP{net.ParseIP("203.0.113.7")}
@@ -91,7 +93,7 @@ func TestCacheFreshAndStale(t *testing.T) {
 func TestSortIPsForDialPrefersIPv4ByDefault(t *testing.T) {
 	t.Parallel()
 
-	r := &Upstream{config: UpstreamConfig{PreferIPv6: false}}
+	r := &Upstream{config: conf.UpstreamConfig{PreferIPv6: false}}
 	in := []net.IP{net.ParseIP("::1"), net.ParseIP("1.2.3.4"), net.ParseIP("::2")}
 	out := r.sortIPsForDial(in)
 	if isIPv6(out[0]) {

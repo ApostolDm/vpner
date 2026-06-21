@@ -8,27 +8,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ApostolDmitry/vpner/internal/conf"
 	"golang.org/x/sync/singleflight"
 )
-
-type UpstreamConfig struct {
-	Servers            []string `yaml:"servers"`
-	Resolvers          []string `yaml:"resolvers"`
-	CacheTTL           int      `yaml:"cache-ttl"`
-	Verbose            bool     `yaml:"verbose"`
-	InsecureSkipVerify bool     `yaml:"insecure-skip-verify"`
-
-	HTTPTimeout           int  `yaml:"http-timeout"`
-	DialTimeout           int  `yaml:"dial-timeout"`
-	TLSHandshakeTimeout   int  `yaml:"tls-handshake-timeout"`
-	ResponseHeaderTimeout int  `yaml:"response-header-timeout"`
-	BootstrapTimeout      int  `yaml:"bootstrap-timeout"`
-	MaxCacheEntries       int  `yaml:"max-cache-entries"`
-	StaleTTL              int  `yaml:"stale-ttl"`
-	CleanupInterval       int  `yaml:"cleanup-interval"`
-	MaxConcurrentRequests int  `yaml:"max-concurrent-requests"`
-	PreferIPv6            bool `yaml:"prefer-ipv6"`
-}
 
 type upstreamState struct {
 	server string
@@ -43,7 +25,7 @@ type upstreamState struct {
 }
 
 type Upstream struct {
-	config     UpstreamConfig
+	config     conf.UpstreamConfig
 	httpClient *http.Client
 
 	cache   map[string]cachedEntry
@@ -57,7 +39,7 @@ type Upstream struct {
 	wg     sync.WaitGroup
 }
 
-func NewUpstream(cfg UpstreamConfig) *Upstream {
+func NewUpstream(cfg conf.UpstreamConfig) *Upstream {
 	cfg = normalizeConfig(cfg)
 
 	r := &Upstream{
@@ -127,7 +109,7 @@ func (r *Upstream) ServerStats() []ServerStat {
 	return out
 }
 
-func normalizeConfig(cfg UpstreamConfig) UpstreamConfig {
+func normalizeConfig(cfg conf.UpstreamConfig) conf.UpstreamConfig {
 	setDefault(&cfg.CacheTTL, 300)
 	setDefault(&cfg.StaleTTL, 300)
 	setDefault(&cfg.HTTPTimeout, 8)

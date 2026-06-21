@@ -6,9 +6,40 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ApostolDmitry/vpner/internal/resolver"
 	"gopkg.in/yaml.v3"
 )
+
+type ServerConfig struct {
+	Port                 int                 `yaml:"port"`
+	Listen               string              `yaml:"listen"`
+	MaxConcurrentConn    int                 `yaml:"max-concurrent-connections"`
+	Verbose              bool                `yaml:"verbose"`
+	CustomResolve        map[string][]string `yaml:"custom-resolve"`
+	CustomResolveTimeout int                 `yaml:"custom-resolve-timeout"`
+	Cache                *bool               `yaml:"cache"`
+	CacheMaxEntries      int                 `yaml:"cache-max-entries"`
+	RateLimit            int                 `yaml:"rate-limit"`
+	Running              bool                `yaml:"running"`
+}
+
+type UpstreamConfig struct {
+	Servers            []string `yaml:"servers"`
+	Resolvers          []string `yaml:"resolvers"`
+	CacheTTL           int      `yaml:"cache-ttl"`
+	Verbose            bool     `yaml:"verbose"`
+	InsecureSkipVerify bool     `yaml:"insecure-skip-verify"`
+
+	HTTPTimeout           int  `yaml:"http-timeout"`
+	DialTimeout           int  `yaml:"dial-timeout"`
+	TLSHandshakeTimeout   int  `yaml:"tls-handshake-timeout"`
+	ResponseHeaderTimeout int  `yaml:"response-header-timeout"`
+	BootstrapTimeout      int  `yaml:"bootstrap-timeout"`
+	MaxCacheEntries       int  `yaml:"max-cache-entries"`
+	StaleTTL              int  `yaml:"stale-ttl"`
+	CleanupInterval       int  `yaml:"cleanup-interval"`
+	MaxConcurrentRequests int  `yaml:"max-concurrent-requests"`
+	PreferIPv6            bool `yaml:"prefer-ipv6"`
+}
 
 type GRPCTLSConfig struct {
 	Cert     string `yaml:"cert"`
@@ -49,11 +80,11 @@ type NetworkConfig struct {
 }
 
 type FullConfig struct {
-	DNSServer        resolver.ServerConfig   `yaml:"dnsServer"`
-	GRPC             GRPCConfig              `yaml:"grpc"`
-	DoH              resolver.UpstreamConfig `yaml:"doh"`
-	UnblockRulesPath string                  `yaml:"unblock-rules-path"`
-	Network          NetworkConfig           `yaml:"network"`
+	DNSServer        ServerConfig   `yaml:"dnsServer"`
+	GRPC             GRPCConfig     `yaml:"grpc"`
+	DoH              UpstreamConfig `yaml:"doh"`
+	UnblockRulesPath string         `yaml:"unblock-rules-path"`
+	Network          NetworkConfig  `yaml:"network"`
 }
 
 func LoadStrict(path string) error {

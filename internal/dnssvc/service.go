@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ApostolDmitry/vpner/internal/conf"
 	"github.com/ApostolDmitry/vpner/internal/firewall"
 	"github.com/ApostolDmitry/vpner/internal/logx"
 	"github.com/ApostolDmitry/vpner/internal/resolver"
@@ -20,12 +21,12 @@ type Service struct {
 	mu      sync.Mutex
 
 	server    *resolver.Server
-	cfg       resolver.ServerConfig
+	cfg       conf.ServerConfig
 	ipManager *firewall.IpRuleManager
 	resolver  *resolver.Upstream
 }
 
-func New(cfg resolver.ServerConfig, unblock *unblock.Service, resolver *resolver.Upstream, registry *firewall.IPSetRegistry) *Service {
+func New(cfg conf.ServerConfig, unblock *unblock.Service, resolver *resolver.Upstream, registry *firewall.IPSetRegistry) *Service {
 	var ipManager *firewall.IpRuleManager
 	if unblock != nil {
 		ipManager = firewall.NewIpRuleManager(unblock, unblock.RuntimeOptions(), resolver, registry)
