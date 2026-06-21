@@ -12,6 +12,7 @@ import (
 	"github.com/ApostolDmitry/vpner/internal/agent"
 	"github.com/ApostolDmitry/vpner/internal/buildinfo"
 	"github.com/ApostolDmitry/vpner/internal/conf"
+	"github.com/ApostolDmitry/vpner/internal/logsyslog"
 	"github.com/ApostolDmitry/vpner/internal/logx"
 )
 
@@ -30,7 +31,7 @@ func main() {
 	}
 
 	logx.SetLevel(logLevel)
-	if err := logx.Configure(); err != nil {
+	if err := logsyslog.Configure(); err != nil {
 		logx.Warnf("syslog unavailable, using stderr fallback: %v", err)
 	}
 	logx.Infof("Starting vpnerd, config=%s", configFile)
