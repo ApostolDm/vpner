@@ -6,9 +6,10 @@ import (
 	"log"
 	"time"
 
-	"github.com/ApostolDmitry/vpner/internal/client"
+	"github.com/ApostolDmitry/vpner/internal/buildinfo"
 	grpcpb "github.com/ApostolDmitry/vpner/internal/grpc"
-	"github.com/ApostolDmitry/vpner/internal/hookmeta"
+	"github.com/ApostolDmitry/vpner/internal/hookscope"
+	"github.com/ApostolDmitry/vpner/internal/rpcclient"
 )
 
 func main() {
@@ -29,19 +30,26 @@ func main() {
 	flag.StringVar(&family, "family", "", "iptables family to restore (v4/v6)")
 	flag.StringVar(&table, "table", "", "iptables table that was flushed (nat/mangle)")
 	flag.DurationVar(&timeout, "timeout", 5*time.Second, "RPC timeout")
+	var showVersion bool
+	flag.BoolVar(&showVersion, "version", false, "print version and exit")
 	flag.Parse()
 
-	family, err := hookmeta.NormalizeFamily(family)
+	if showVersion {
+		fmt.Println("vpnerhookcli", buildinfo.String())
+		return
+	}
+
+	family, err := hookscope.NormalizeFamily(family)
 	if err != nil {
 		log.Fatalf("invalid family: %v", err)
 	}
 
-	table, err = hookmeta.NormalizeTable(table)
+	table, err = hookscope.NormalizeTable(table)
 	if err != nil {
 		log.Fatalf("invalid table: %v", err)
 	}
 
-	opts, err := client.ResolveOptions(client.Options{
+	opts, err := rpcclient.ResolveOptions(rpcclient.Options{
 		ConfigPath: cfgPath,
 		Addr:       addr,
 		Unix:       unixPath,
@@ -52,7 +60,7 @@ func main() {
 		log.Fatalf("resolve options: %v", err)
 	}
 
-	rt, err := client.NewRuntime(opts)
+	rt, err := rpcclient.NewRuntime(opts)
 	if err != nil {
 		log.Fatalf("dial vpnerd: %v", err)
 	}
@@ -60,7 +68,7 @@ func main() {
 
 	ctx, cancel := rt.Context(opts.Timeout)
 	defer cancel()
-	ctx = hookmeta.AppendOutgoingContext(ctx, hookmeta.Scope{Family: family, Table: table})
+	ctx = hookscope.AppendOutgoingContext(ctx, hookscope.Scope{Family: family, Table: table})
 
 	resp, err := rt.Client().HookRestore(ctx, &grpcpb.Empty{})
 	if err != nil {

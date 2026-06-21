@@ -4,6 +4,7 @@ dnsServer:
   verbose: false
   running: true
   custom-resolve: {}
+  custom-resolve-timeout: 3
 
 doh:
   servers:
@@ -23,7 +24,6 @@ grpc:
   unix:
     enabled: true
     path: "/tmp/vpner.sock"
-    auth: false
 
   auth:
     password: "secret123"

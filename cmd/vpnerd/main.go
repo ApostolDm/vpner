@@ -3,58 +3,57 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/ApostolDmitry/vpner/internal/app"
-	"github.com/ApostolDmitry/vpner/internal/config"
-	"github.com/ApostolDmitry/vpner/internal/logging"
-	"github.com/alecthomas/kingpin/v2"
-)
-
-var (
-	cliApp     = kingpin.New("vpnerd", "A deamon vpner")
-	configFile = cliApp.Flag("config", "config file vpner").Short('c').Default("/opt/etc/vpner/vpner.yaml").String()
-	logLevel   = cliApp.Flag("log-level", "Log level: error, warn, info, debug").Default("info").String()
+	"github.com/ApostolDmitry/vpner/internal/agent"
+	"github.com/ApostolDmitry/vpner/internal/buildinfo"
+	"github.com/ApostolDmitry/vpner/internal/conf"
+	"github.com/ApostolDmitry/vpner/internal/logx"
 )
 
 func main() {
-	kingpin.MustParse(cliApp.Parse(os.Args[1:]))
-	ctx, cancel := context.WithCancel(context.Background())
+	var configFile, logLevel string
+	var showVersion bool
+	flag.StringVar(&configFile, "config", "/opt/etc/vpner/vpner.yaml", "config file path")
+	flag.StringVar(&configFile, "c", "/opt/etc/vpner/vpner.yaml", "config file path (shorthand)")
+	flag.StringVar(&logLevel, "log-level", "info", "log level: error, warn, info, debug")
+	flag.BoolVar(&showVersion, "version", false, "print version and exit")
+	flag.Parse()
 
-	defer cancel()
-
-	logging.SetLevel(*logLevel)
-	if err := logging.Configure(); err != nil {
-		logging.Warnf("syslog unavailable, using stderr fallback: %v", err)
+	if showVersion {
+		fmt.Println("vpnerd", buildinfo.String())
+		return
 	}
-	logging.Infof("Starting vpnerd, config=%s", *configFile)
 
-	go func() {
-		ch := make(chan os.Signal, 1)
-		signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
-		<-ch
-		cancel()
-	}()
+	logx.SetLevel(logLevel)
+	if err := logx.Configure(); err != nil {
+		logx.Warnf("syslog unavailable, using stderr fallback: %v", err)
+	}
+	logx.Infof("Starting vpnerd, config=%s", configFile)
 
-	if err := launchApp(ctx); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := launchApp(ctx, configFile); err != nil {
 		if errors.Is(err, context.Canceled) {
-			logging.Infof("vpnerd stopped by context cancel")
+			logx.Infof("vpnerd stopped by context cancel")
 			return
 		}
-		logging.Errorf("Ошибка запуска vpnerd: %s", err)
+		logx.Errorf("vpnerd startup error: %s", err)
 		os.Exit(1)
 	}
-
 }
 
-func launchApp(ctx context.Context) error {
-	cfg, err := config.LoadFullConfig(*configFile)
+func launchApp(ctx context.Context, configFile string) error {
+	cfg, err := conf.LoadFullConfig(configFile)
 	if err != nil {
 		return err
 	}
-	rt, err := app.New(*cfg)
+	rt, err := agent.New(*cfg)
 	if err != nil {
 		return err
 	}
