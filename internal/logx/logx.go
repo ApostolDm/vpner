@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"log/syslog"
 	"os"
 	"strings"
 	"sync"
@@ -19,14 +18,16 @@ const (
 	LevelDebug
 )
 
-const syslogTag = "[VPNER]"
+const Tag = "[VPNER]"
 
-var syslogPaths = []string{"/dev/log", "/dev/syslog", "/var/run/syslog"}
+type Sink interface {
+	Log(level Level, msg string)
+}
 
 var (
 	mu    sync.RWMutex
 	level      = LevelInfo
-	out   sink = stderrSink()
+	out   Sink = stderrSink()
 )
 
 func SetLevel(name string) {
@@ -44,16 +45,13 @@ func SetLevel(name string) {
 	}
 }
 
-func Configure() error {
-	s, err := dialSyslog()
+func SetSink(s Sink) {
+	if s == nil {
+		return
+	}
 	mu.Lock()
 	defer mu.Unlock()
-	if err != nil {
-		out = stderrSink()
-		return err
-	}
 	out = s
-	return nil
 }
 
 func Debugf(format string, a ...any) { emit(LevelDebug, format, a...) }
@@ -67,7 +65,7 @@ func emit(l Level, format string, a ...any) {
 	if l > level {
 		return
 	}
-	out.log(l, message(format, a...))
+	out.Log(l, message(format, a...))
 }
 
 func message(format string, a ...any) string {
@@ -77,7 +75,7 @@ func message(format string, a ...any) string {
 	return strings.TrimRight(fmt.Sprintf(format, a...), "\r\n")
 }
 
-func levelTag(l Level) string {
+func LevelTag(l Level) string {
 	switch l {
 	case LevelDebug:
 		return "DEBUG"
@@ -90,48 +88,12 @@ func levelTag(l Level) string {
 	}
 }
 
-type sink interface {
-	log(l Level, msg string)
-}
+type stderrLogger struct{ l *log.Logger }
 
-type stderr struct{ l *log.Logger }
+func stderrSink() *stderrLogger { return &stderrLogger{l: log.New(os.Stderr, "", log.LstdFlags)} }
 
-func stderrSink() *stderr { return &stderr{l: log.New(os.Stderr, "", log.LstdFlags)} }
-
-func (s *stderr) log(l Level, msg string) {
-	s.l.Printf("%s [%s] %s", syslogTag, levelTag(l), msg)
-}
-
-type syslogSink struct{ w *syslog.Writer }
-
-func dialSyslog() (*syslogSink, error) {
-	var lastErr error
-	for _, path := range syslogPaths {
-		for _, network := range []string{"unixgram", "unix"} {
-			if w, err := syslog.Dial(network, path, syslog.LOG_DAEMON|syslog.LOG_INFO, syslogTag); err == nil {
-				return &syslogSink{w: w}, nil
-			} else {
-				lastErr = err
-			}
-		}
-	}
-	if lastErr == nil {
-		lastErr = os.ErrNotExist
-	}
-	return nil, lastErr
-}
-
-func (s *syslogSink) log(l Level, msg string) {
-	switch l {
-	case LevelDebug:
-		_ = s.w.Debug(msg)
-	case LevelInfo:
-		_ = s.w.Info(msg)
-	case LevelWarn:
-		_ = s.w.Warning(msg)
-	default:
-		_ = s.w.Err(msg)
-	}
+func (s *stderrLogger) Log(l Level, msg string) {
+	s.l.Printf("%s [%s] %s", Tag, LevelTag(l), msg)
 }
 
 func NewStreamWriter(prefix string, defaultLevel Level) io.Writer {
