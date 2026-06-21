@@ -25,8 +25,43 @@ service VpnerManager {
   rpc XrayDelete (XrayRequest) returns (GenericResponse);
   rpc XrayList (Empty) returns (XrayListResponse);
   rpc XrayManage(XrayManageRequest) returns (GenericResponse);
+  rpc XrayTest(XrayRequest) returns (GenericResponse);
   rpc XraySetAutorun(XrayAutoRunRequest) returns (GenericResponse);
   rpc HookRestore(Empty) returns (GenericResponse);
+
+  // Daemon-wide status snapshot.
+  rpc Status(Empty) returns (StatusResponse);
+}
+
+message StatusResponse {
+  string version = 1;
+  int64 uptime_seconds = 2;
+  bool dns_running = 3;
+  int32 dns_port = 4;
+  bool tproxy_enabled = 5;
+  int32 unblock_rule_count = 6;
+  repeated ChainStatus chains = 7;
+  repeated DohServerStatus doh_servers = 8;
+}
+
+message ChainStatus {
+  string name = 1;
+  string type = 2;
+  string host = 3;
+  int32 port = 4;
+  int32 inbound_port = 5;
+  bool auto_run = 6;
+  bool running = 7;
+  int32 restarts = 8;
+  int64 uptime_seconds = 9;
+  string last_exit = 10;
+}
+
+message DohServerStatus {
+  string server = 1;
+  uint64 successes = 2;
+  uint64 failures = 3;
+  int64 last_latency_ms = 4;
 }
 
 

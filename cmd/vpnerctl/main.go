@@ -1,7 +1,7 @@
 package main
 
-import "github.com/ApostolDmitry/vpner/cmd/vpnerctl/cmd"
+import cli "github.com/ApostolDmitry/vpner/internal/cli"
 
 func main() {
-	cmd.Execute()
+	cli.Execute()
 }

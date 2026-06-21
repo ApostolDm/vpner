@@ -229,7 +229,7 @@ build_arch() {
 
   log "Building $PKG_NAME for ${GOOS}/${goarch} -> $pkgarch"
   GOOS=$GOOS GOARCH=$goarch GOMODCACHE=$gomodcache GOCACHE=$gocache GOPATH=$gopath \
-    go build -ldflags="-s -w" -o "$bin_path" ./cmd/vpnerd
+    go build -ldflags="-s -w -X github.com/ApostolDmitry/vpner/internal/buildinfo.Version=$PKG_VERSION" -o "$bin_path" ./cmd/vpnerd
 
   if command -v upx >/dev/null 2>&1; then
     log "Compressing binary with upx ($UPX_ARGS)"
@@ -247,7 +247,7 @@ build_arch() {
   chmod +x "$ROOT_DIR/${PKG_NAME}-${goarch}"
 
   GOOS=$GOOS GOARCH=$goarch GOMODCACHE=$gomodcache GOCACHE=$gocache GOPATH=$gopath \
-    go build -ldflags="-s -w" -o "$hook_bin" ./cmd/vpnerhookcli
+    go build -ldflags="-s -w -X github.com/ApostolDmitry/vpner/internal/buildinfo.Version=$PKG_VERSION" -o "$hook_bin" ./cmd/vpnerhookcli
   if command -v upx >/dev/null 2>&1; then
     log "Compressing hook binary with upx ($UPX_ARGS)"
     upx $UPX_ARGS "$hook_bin" >/dev/null || true
