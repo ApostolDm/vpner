@@ -125,6 +125,7 @@ func (x *Service) startLocked(name string) error {
 }
 
 func (x *Service) supervise(ctx context.Context, name string, entry *procEntry, errCh chan error) {
+	defer logx.Recover("xray supervisor " + name)
 	backoff := x.baseBackoff
 	first := true
 	for {

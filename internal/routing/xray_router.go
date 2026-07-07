@@ -14,6 +14,10 @@ type XrayRouter struct {
 }
 
 func NewXrayRouter(ipt *firewall.IptablesManager, lanInterfaces []string) *XrayRouter {
+	return &XrayRouter{iptables: ipt, lanIfaces: normalizeLANIfaces(lanInterfaces)}
+}
+
+func normalizeLANIfaces(lanInterfaces []string) []string {
 	lanIfaces := make([]string, 0, len(lanInterfaces))
 	for _, iface := range lanInterfaces {
 		if iface = strings.TrimSpace(iface); iface != "" {
@@ -23,7 +27,7 @@ func NewXrayRouter(ipt *firewall.IptablesManager, lanInterfaces []string) *XrayR
 	if len(lanIfaces) == 0 {
 		lanIfaces = []string{"br0"}
 	}
-	return &XrayRouter{iptables: ipt, lanIfaces: lanIfaces}
+	return lanIfaces
 }
 
 func (r *XrayRouter) ready() bool {
@@ -34,7 +38,7 @@ func (r *XrayRouter) RoutingIntact() bool {
 	if !r.ready() {
 		return true
 	}
-	return r.iptables.XrayRoutingIntact()
+	return r.iptables.RoutingIntact()
 }
 
 func (r *XrayRouter) Apply(chain string, info proxy.ChainInfo) error {

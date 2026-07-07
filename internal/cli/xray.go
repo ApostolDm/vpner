@@ -38,6 +38,9 @@ func xrayTestCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				if jsonOut {
+					return emitJSON(resp)
+				}
 				return printGenericResponse(resp)
 			})
 		},
@@ -53,6 +56,9 @@ func xrayListCmd() *cobra.Command {
 				resp, err := c.XrayList(ctx, &grpcpb.Empty{})
 				if err != nil {
 					return err
+				}
+				if jsonOut {
+					return emitJSON(resp)
 				}
 				tbl := tablefmt.Table{Headers: []string{"Chain", "Type", "Host", "Port", "AutoRun", "Status"}}
 				for _, item := range resp.List {

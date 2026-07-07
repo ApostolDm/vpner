@@ -69,6 +69,7 @@ type IptablesManager struct {
 	ipv6Enabled   bool
 	tproxyEnabled bool
 	ipInfraReady  bool
+	entryTimeout  int
 }
 
 type ChainSpec struct {
@@ -133,12 +134,16 @@ func commandExists(cmd string) bool {
 	return err == nil
 }
 
-func NewIptablesManager(ipv6Enabled, tproxyEnabled bool) *IptablesManager {
+func NewIptablesManager(ipv6Enabled, tproxyEnabled bool, ipsetEntryTimeout int) *IptablesManager {
+	if ipsetEntryTimeout < 0 {
+		ipsetEntryTimeout = 0
+	}
 	return &IptablesManager{
 		routingV4:     make(map[string]vpnRoutingInfo),
 		routingV6:     make(map[string]vpnRoutingInfo),
 		ipv6Enabled:   ipv6Enabled,
 		tproxyEnabled: tproxyEnabled,
+		entryTimeout:  ipsetEntryTimeout,
 	}
 }
 

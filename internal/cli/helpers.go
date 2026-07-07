@@ -10,7 +10,18 @@ import (
 
 	grpcpb "github.com/ApostolDmitry/vpner/internal/grpc"
 	"github.com/ApostolDmitry/vpner/internal/tablefmt"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
+
+func emitJSON(m proto.Message) error {
+	data, err := protojson.MarshalOptions{Multiline: true, Indent: "  ", EmitDefaultValues: true}.Marshal(m)
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(data))
+	return nil
+}
 
 var rpcTimeout = 120 * time.Second
 

@@ -400,8 +400,19 @@ func fingerprint(ob jobj) string {
 }
 
 func checkXrayBinary() error {
-	if _, err := exec.LookPath("xray"); err != nil {
+	path, err := exec.LookPath("xray")
+	if err != nil {
 		return fmt.Errorf("xray binary not found in PATH: %w", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("xray binary %s: %w", path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("xray binary %s is not a regular file", path)
+	}
+	if info.Mode().Perm()&0o022 != 0 {
+		return fmt.Errorf("xray binary %s is group/world-writable (%#o); refusing to run", path, info.Mode().Perm())
 	}
 	return nil
 }

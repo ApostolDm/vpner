@@ -5,6 +5,8 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/ApostolDmitry/vpner/internal/logx"
 )
 
 const chainInput = "INPUT"
@@ -134,6 +136,20 @@ func tproxySocketRuleSpec() string {
 	return fmt.Sprintf("-A %s -p tcp -m socket --transparent -j %s", chainPrerouting, chainDivert)
 }
 
+func tproxySocketRuleSpecUDP() string {
+	return fmt.Sprintf("-A %s -p udp -m socket --transparent -j %s", chainPrerouting, chainDivert)
+}
+
+func ensureUDPSocketDivert(f ipFamily, existing map[string]bool) {
+	if existing[tproxySocketRuleSpecUDP()] {
+		return
+	}
+	if err := run(f.iptablesCmd, "-t", tableMangle, "-A", chainPrerouting,
+		"-p", "udp", "-m", "socket", "--transparent", "-j", chainDivert); err != nil {
+		logx.Warnf("udp socket divert rule unavailable (established UDP flows may drop on ipset expiry): %v", err)
+	}
+}
+
 func inputBypassRuleSpec() string {
 	return fmt.Sprintf("-A %s -m mark --mark %s -j ACCEPT", chainInput, tproxyMark)
 }
@@ -150,14 +166,6 @@ func addTProxyProtocolRules(b *iptablesBatch, chainName, iface, ipsetName string
 			chainName, iface, proto, ipsetName, port, tproxyMark,
 		))
 	}
-}
-
-func addTProxyRules(f ipFamily, chainName, ipsetName string, port int, iface string) error {
-	b := newBatch(f.iptablesCmd, tableMangle)
-	b.Add(fmt.Sprintf("-A %s -m mark --mark %s -j RETURN", chainName, tproxyMark))
-	addReturnCIDRs(b, chainName, iface, f.localExceptions)
-	addTProxyProtocolRules(b, chainName, iface, ipsetName, port)
-	return b.Commit()
 }
 
 func ipRuleExists(f ipFamily, fwmark, table string) bool {
@@ -194,6 +202,8 @@ func (i *IptablesManager) cleanupTProxyInfraForFamily(f ipFamily) {
 	i.cleanupMangleInputBypass(f)
 	tryRun(f.iptablesCmd, "-t", tableMangle, "-D", chainPrerouting,
 		"-p", "tcp", "-m", "socket", "--transparent", "-j", chainDivert)
+	tryRun(f.iptablesCmd, "-t", tableMangle, "-D", chainPrerouting,
+		"-p", "udp", "-m", "socket", "--transparent", "-j", chainDivert)
 	i.cleanupLegacyTProxySocketRule(f)
 	tryRun(f.iptablesCmd, "-t", tableMangle, "-F", chainDivert)
 	tryRun(f.iptablesCmd, "-t", tableMangle, "-X", chainDivert)

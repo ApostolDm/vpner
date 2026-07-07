@@ -21,6 +21,9 @@ func statusCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
+				if jsonOut {
+					return emitJSON(resp)
+				}
 				printStatus(resp)
 				return nil
 			})
@@ -39,6 +42,13 @@ func printStatus(s *grpcpb.StatusResponse) {
 	}
 	fmt.Printf("vpnerd %s  (up %s)\n", s.Version, humanSeconds(s.UptimeSeconds))
 	fmt.Printf("DNS: %s   mode: %s   unblock rules: %d\n", dns, mode, s.UnblockRuleCount)
+	if s.IpsetEntriesV4 > 0 || s.IpsetEntriesV6 > 0 {
+		fmt.Printf("ipset entries: %d v4, %d v6\n", s.IpsetEntriesV4, s.IpsetEntriesV6)
+	}
+	if q := s.QueryStats; q != nil && q.Total > 0 {
+		fmt.Printf("DNS queries: %d total  (cache %d, DoH %d, custom %d, NXDOMAIN %d, servfail %d, refused %d)\n",
+			q.Total, q.CacheHits, q.Doh, q.Custom, q.Nxdomain, q.Servfail, q.Refused)
+	}
 
 	if len(s.Chains) > 0 {
 		tbl := tablefmt.Table{Headers: []string{"Chain", "Type", "Host", "Port", "In", "AutoRun", "State", "Restarts", "Uptime"}}
@@ -71,6 +81,14 @@ func printStatus(s *grpcpb.StatusResponse) {
 		}
 		fmt.Println()
 		printTable(tbl)
+	}
+
+	if len(s.RecentEvents) > 0 {
+		fmt.Println("\nRecent events:")
+		for _, ev := range s.RecentEvents {
+			ts := time.UnixMilli(ev.UnixMs).Format("15:04:05")
+			fmt.Printf("  %s [%s] %s\n", ts, ev.Level, ev.Message)
+		}
 	}
 }
 

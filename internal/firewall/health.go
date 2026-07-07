@@ -2,11 +2,9 @@ package firewall
 
 import (
 	"os/exec"
-
-	"github.com/ApostolDmitry/vpner/internal/vpnkind"
 )
 
-func (i *IptablesManager) XrayRoutingIntact() bool {
+func (i *IptablesManager) RoutingIntact() bool {
 	type probe struct{ iptablesCmd, table, chain, ipsetName string }
 
 	var probes []probe
@@ -19,9 +17,7 @@ func (i *IptablesManager) XrayRoutingIntact() bool {
 		{familyV6, i.routingV6},
 	} {
 		for ipsetName, info := range fam.routing {
-			if info.VPNType == vpnkind.Xray {
-				probes = append(probes, probe{fam.f.iptablesCmd, info.Table, info.ChainName, ipsetName})
-			}
+			probes = append(probes, probe{fam.f.iptablesCmd, info.Table, info.ChainName, ipsetName})
 		}
 	}
 	i.mu.Unlock()

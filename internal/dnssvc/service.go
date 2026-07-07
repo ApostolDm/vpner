@@ -29,7 +29,7 @@ type Service struct {
 func New(cfg conf.ServerConfig, unblock *unblock.Service, resolver *resolver.Upstream, registry *firewall.IPSetRegistry) *Service {
 	var ipManager *firewall.IpRuleManager
 	if unblock != nil {
-		ipManager = firewall.NewIpRuleManager(unblock, unblock.RuntimeOptions(), resolver, registry)
+		ipManager = firewall.NewIpRuleManager(unblock, unblock.RuntimeOptions(), registry)
 	}
 
 	return &Service{
@@ -50,7 +50,11 @@ func (d *Service) Start() error {
 
 	d.ctx, d.cancel = context.WithCancel(context.Background())
 	d.done = make(chan struct{})
-	d.server = resolver.NewServer(d.cfg, d.ipManager, d.resolver)
+	var syncer resolver.IPSyncer
+	if d.ipManager != nil {
+		syncer = d.ipManager
+	}
+	d.server = resolver.NewServer(d.cfg, syncer, d.resolver)
 	started := make(chan struct{})
 	errCh := make(chan error, 1)
 	d.server.SetNotifyStartedFunc(func() {
@@ -122,4 +126,14 @@ func (d *Service) UpstreamStats() []resolver.ServerStat {
 		return nil
 	}
 	return d.resolver.ServerStats()
+}
+
+func (d *Service) QueryStats() resolver.QueryStats {
+	d.mu.Lock()
+	srv := d.server
+	d.mu.Unlock()
+	if srv == nil {
+		return resolver.QueryStats{}
+	}
+	return srv.Stats()
 }

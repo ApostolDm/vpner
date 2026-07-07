@@ -51,20 +51,24 @@ func vmessOutbound(l *Link) jobj {
 }
 
 func ssOutbound(l *Link) jobj {
-	ob := jobj{
+	server := jobj{
+		"address":  l.Address,
+		"port":     l.Port,
+		"method":   l.Method,
+		"password": l.Password,
+	}
+	if l.Plugin != "" {
+		name, opts, _ := strings.Cut(l.Plugin, ";")
+		server["plugin"] = name
+		if opts != "" {
+			server["pluginOpts"] = opts
+		}
+	}
+	return jobj{
 		"tag":      firstNonEmpty(l.Tag, "shadowsocks"),
 		"protocol": "shadowsocks",
-		"settings": jobj{
-			"servers": []jobj{{
-				"address":  l.Address,
-				"port":     l.Port,
-				"method":   l.Method,
-				"password": l.Password,
-			}},
-		},
+		"settings": jobj{"servers": []jobj{server}},
 	}
-
-	return ob
 }
 
 func proxyOutbound(l *Link, protocol, tag string, settings jobj) jobj {

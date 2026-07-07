@@ -93,6 +93,25 @@ exit 0
 POSTINST
 }
 
+render_prerm() {
+  cat <<'PRERM'
+#!/bin/sh
+INIT="__INSTALL_PREFIX__/etc/init.d/__INIT_NAME__"
+if [ -x "$INIT" ]; then
+  "$INIT" stop 2>/dev/null || true
+fi
+exit 0
+PRERM
+}
+
+render_postrm() {
+  cat <<'POSTRM'
+#!/bin/sh
+rm -f "__INSTALL_PREFIX__/var/run/vpnerd.pid"
+exit 0
+POSTRM
+}
+
 render_ndm_hook() {
   cat <<'HOOK'
 #!/bin/sh
@@ -119,7 +138,10 @@ render_init_script() {
 CMD=/opt/etc/vpner/vpnerd
 CFG=/opt/etc/vpner/vpner.yaml
 PIDFILE=/opt/var/run/vpnerd.pid
-LOGFILE=/opt/var/log/vpnerd.log
+CRASHLOG=/opt/var/log/vpnerd.crash.log
+# vpnerd logs to syslog (the Keenetic system journal, tag [VPNER]) by default.
+# CRASHLOG only receives panics and errors emitted before logging comes up.
+# Pass --log-file to ARGS instead to switch to a rotated local file.
 ARGS="--config $CFG"
 PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
@@ -133,15 +155,25 @@ start() {
     return 0
   fi
   mkdir -p /opt/var/run /opt/var/log
-  "$CMD" $ARGS >>"$LOGFILE" 2>&1 &
+  "$CMD" $ARGS >>"$CRASHLOG" 2>&1 &
   echo $! > "$PIDFILE"
   echo "vpnerd started"
 }
 
 stop() {
   if is_running; then
-    kill -15 "$(cat "$PIDFILE")" 2>/dev/null || true
-    sleep 1
+    pid="$(cat "$PIDFILE")"
+    kill -15 "$pid" 2>/dev/null || true
+    i=0
+    while kill -0 "$pid" 2>/dev/null; do
+      i=$((i + 1))
+      if [ "$i" -ge 10 ]; then
+        echo "vpnerd did not stop gracefully; sending SIGKILL"
+        kill -9 "$pid" 2>/dev/null || true
+        break
+      fi
+      sleep 1
+    done
   fi
   rm -f "$PIDFILE"
   echo "vpnerd stopped"
@@ -280,6 +312,14 @@ build_arch() {
   apply_placeholders "$control_dir/postinst"
   chmod 755 "$control_dir/postinst"
 
+  render_prerm > "$control_dir/prerm"
+  apply_placeholders "$control_dir/prerm"
+  chmod 755 "$control_dir/prerm"
+
+  render_postrm > "$control_dir/postrm"
+  apply_placeholders "$control_dir/postrm"
+  chmod 755 "$control_dir/postrm"
+
   cat <<CONTROL > "$control_dir/control"
 Package: $PKG_NAME
 Version: $PKG_VERSION
@@ -347,6 +387,14 @@ build_universal() {
   render_postinst > "$control_dir/postinst"
   apply_placeholders "$control_dir/postinst"
   chmod 755 "$control_dir/postinst"
+
+  render_prerm > "$control_dir/prerm"
+  apply_placeholders "$control_dir/prerm"
+  chmod 755 "$control_dir/prerm"
+
+  render_postrm > "$control_dir/postrm"
+  apply_placeholders "$control_dir/postrm"
+  chmod 755 "$control_dir/postrm"
 
   cat <<CONTROL > "$control_dir/control"
 Package: $PKG_NAME

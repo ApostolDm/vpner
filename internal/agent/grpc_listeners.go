@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"runtime/debug"
 	"syscall"
 	"time"
 
@@ -96,18 +97,21 @@ func newGRPCInstance(network, addr string, authRequired bool, password string, t
 		}
 	}
 
-	var opts []grpc.ServerOption
+	unary := []grpc.UnaryServerInterceptor{recoveryUnary}
+	stream := []grpc.StreamServerInterceptor{recoveryStream}
+	if authRequired {
+		unary = append(unary, authInterceptor(password))
+		stream = append(stream, streamAuthInterceptor(password))
+	}
+	opts := []grpc.ServerOption{
+		grpc.ChainUnaryInterceptor(unary...),
+		grpc.ChainStreamInterceptor(stream...),
+	}
 	if creds, err := serverTLSCreds(network, tlsCfg); err != nil {
 		_ = lis.Close()
 		return nil, err
 	} else if creds != nil {
 		opts = append(opts, grpc.Creds(creds))
-	}
-	if authRequired {
-		opts = append(opts,
-			grpc.UnaryInterceptor(authInterceptor(password)),
-			grpc.StreamInterceptor(streamAuthInterceptor(password)),
-		)
 	}
 
 	s := grpc.NewServer(opts...)
@@ -159,6 +163,26 @@ func (g *grpcInstance) Stop() {
 	if g.network == "unix" {
 		_ = os.Remove(g.address)
 	}
+}
+
+func recoveryUnary(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			logx.Errorf("panic in RPC %s: %v\n%s", info.FullMethod, r, debug.Stack())
+			err = status.Errorf(codes.Internal, "internal error")
+		}
+	}()
+	return handler(ctx, req)
+}
+
+func recoveryStream(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			logx.Errorf("panic in stream %s: %v\n%s", info.FullMethod, r, debug.Stack())
+			err = status.Errorf(codes.Internal, "internal error")
+		}
+	}()
+	return handler(srv, ss)
 }
 
 func authInterceptor(password string) grpc.UnaryServerInterceptor {

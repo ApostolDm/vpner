@@ -16,6 +16,7 @@ type DNSController interface {
 	Stop()
 	IsRunning() bool
 	UpstreamStats() []resolver.ServerStat
+	QueryStats() resolver.QueryStats
 }
 
 type InterfaceController interface {
@@ -23,7 +24,7 @@ type InterfaceController interface {
 	FetchInterfaces() (map[string]netif.Interface, error)
 	AddInterface(id string) error
 	DeleteInterface(id string) error
-	LookupRouterType(name string) (string, bool)
+	LookupTracked(name string) (netif.Interface, bool)
 }
 
 type XrayController interface {
@@ -44,9 +45,10 @@ type XrayController interface {
 
 type UnblockController interface {
 	List() ([]unblock.RuleGroup, error)
-	AddRule(chainName, pattern string) error
-	DeleteRule(pattern string) error
+	AddRule(chainName, pattern string) (string, error)
+	DeleteRule(pattern string) (string, string, error)
 	DeleteChain(vpnType, chainName string) error
+	RuleCount(vpnType, chainName string) int
 }
 
 type RoutingController interface {
@@ -57,6 +59,11 @@ type RoutingController interface {
 	ClearAppliedState(table string, clearV4, clearV6 bool)
 	ResetStateFamily(resetV4, resetV6 bool)
 	RoutingIntact() bool
+}
+
+type MarkRoutingController interface {
+	Apply(vpnType, chain, vpnIface string) error
+	Remove(vpnType, chain string) error
 }
 
 type StatusInfo struct {
@@ -72,7 +79,9 @@ type Dependencies struct {
 	InterfaceManager InterfaceController
 	XrayService      XrayController
 	XrayRouter       RoutingController
+	MarkRouter       MarkRoutingController
 	Info             StatusInfo
+	IPSetCounts      func() (v4, v6 int64)
 }
 
 func NewVpnerServer(deps Dependencies) *VpnerServer {
@@ -82,7 +91,9 @@ func NewVpnerServer(deps Dependencies) *VpnerServer {
 		ifManager:   deps.InterfaceManager,
 		xrayService: deps.XrayService,
 		xrayRouter:  deps.XrayRouter,
+		markRouter:  deps.MarkRouter,
 		info:        deps.Info,
+		ipsetCounts: deps.IPSetCounts,
 	}
 }
 
@@ -90,3 +101,4 @@ var _ XrayController = (*proxysvc.Service)(nil)
 var _ UnblockController = (*unblock.Service)(nil)
 var _ InterfaceController = (*netif.Manager)(nil)
 var _ RoutingController = (*routing.XrayRouter)(nil)
+var _ MarkRoutingController = (*routing.MarkRouter)(nil)

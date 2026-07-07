@@ -27,15 +27,26 @@ func (s *VpnerServer) UnblockList(ctx context.Context, _ *grpcpb.Empty) (*grpcpb
 }
 
 func (s *VpnerServer) UnblockAdd(ctx context.Context, req *grpcpb.UnblockAddRequest) (*grpcpb.GenericResponse, error) {
-	if err := s.unblock.AddRule(req.ChainName, req.Domain); err != nil {
+	vpnType, err := s.unblock.AddRule(req.ChainName, req.Domain)
+	if err != nil {
 		return errorGeneric(fmt.Sprintf("Failed to add rule: %v", err)), nil
+	}
+	if err := s.applyMarkRouting(vpnType, req.ChainName); err != nil {
+		if _, _, delErr := s.unblock.DeleteRule(req.Domain); delErr != nil {
+			return errorGeneric(fmt.Sprintf("Rule added, but failed to configure routing: %v (rollback failed: %v)", err, delErr)), nil
+		}
+		return errorGeneric(fmt.Sprintf("Failed to configure routing: %v", err)), nil
 	}
 	return successGeneric("Rule added successfully"), nil
 }
 
 func (s *VpnerServer) UnblockDel(ctx context.Context, req *grpcpb.UnblockDelRequest) (*grpcpb.GenericResponse, error) {
-	if err := s.unblock.DeleteRule(req.Domain); err != nil {
+	vpnType, chainName, err := s.unblock.DeleteRule(req.Domain)
+	if err != nil {
 		return errorGeneric(fmt.Sprintf("Failed to delete rule: %v", err)), nil
+	}
+	if err := s.dropMarkRoutingIfUnused(vpnType, chainName); err != nil {
+		return errorGeneric(fmt.Sprintf("Rule deleted, but failed to remove routing: %v", err)), nil
 	}
 	return successGeneric("Rule deleted successfully"), nil
 }

@@ -40,6 +40,12 @@ func TestOverlapAndMatch(t *testing.T) {
 	if !Match("*.example.com", "api.example.com") {
 		t.Fatalf("expected wildcard suffix match")
 	}
+	if !Match("*.example.com", "example.com") {
+		t.Fatalf("expected wildcard to match its bare apex")
+	}
+	if Match("*.example.com", "notexample.com") {
+		t.Fatalf("apex match must require an exact apex, not a suffix")
+	}
 	if Match("*.example.com", "example.net") {
 		t.Fatalf("unexpected match for different domain")
 	}

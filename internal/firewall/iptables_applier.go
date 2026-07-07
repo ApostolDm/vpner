@@ -236,6 +236,10 @@ func (i *IptablesManager) buildTProxyBatch(f ipFamily, routing map[string]vpnRou
 	}
 
 	existing := listPreroutingRules(f.iptablesCmd, tableMangle)
+
+	tryRun(f.iptablesCmd, "-t", tableMangle, "-F", chainDivert)
+	flushXrayChains(f.iptablesCmd, tableMangle, specs)
+
 	b := newBatch(f.iptablesCmd, tableMangle)
 
 	b.Add(fmt.Sprintf(":%s - [0:0]", chainDivert))
@@ -260,12 +264,16 @@ func (i *IptablesManager) buildTProxyBatch(f ipFamily, routing map[string]vpnRou
 	if err := b.Commit(); err != nil {
 		return err
 	}
+	ensureUDPSocketDivert(f, existing)
 	updateRoutingMap(routing, specs, tableMangle, f.iptablesCmd)
 	return nil
 }
 
 func (i *IptablesManager) buildRedirectBatch(f ipFamily, routing map[string]vpnRoutingInfo, specs []ChainSpec) error {
 	existing := listPreroutingRules(f.iptablesCmd, tableNat)
+
+	flushXrayChains(f.iptablesCmd, tableNat, specs)
+
 	b := newBatch(f.iptablesCmd, tableNat)
 
 	buildXrayChains(b, existing, specs, nil,
@@ -279,6 +287,12 @@ func (i *IptablesManager) buildRedirectBatch(f ipFamily, routing map[string]vpnR
 	}
 	updateRoutingMap(routing, specs, tableNat, f.iptablesCmd)
 	return nil
+}
+
+func flushXrayChains(iptablesCmd, table string, specs []ChainSpec) {
+	for _, spec := range specs {
+		tryRun(iptablesCmd, "-t", table, "-F", buildChainName(spec.IPSetName))
+	}
 }
 
 func buildXrayChains(b *iptablesBatch, existing map[string]bool, specs []ChainSpec, initChain xrayChainInit, addIfaceRules xrayChainIfaceRules) {
@@ -330,7 +344,24 @@ func addReturnCIDRs(b *iptablesBatch, chainName, iface string, cidrs []string) {
 }
 
 func addMarkRules(f ipFamily, chainName, ipsetName string, mark int, iface string) error {
+	if err := commitMarkRules(f, chainName, ipsetName, mark, iface, true); err == nil {
+		return nil
+	} else {
+		logx.Warnf("CONNMARK rules rejected for %s, falling back to plain marking (established flows will not survive ipset changes): %v", chainName, err)
+	}
+	return commitMarkRules(f, chainName, ipsetName, mark, iface, false)
+}
+
+const vpnerMarkMask = "0x1fff"
+
+func commitMarkRules(f ipFamily, chainName, ipsetName string, mark int, iface string, withConnmark bool) error {
 	b := newBatch(f.iptablesCmd, tableMangle)
+
+	if withConnmark {
+		b.Add(fmt.Sprintf("-A %s -i %s -j CONNMARK --restore-mark --nfmask %s --ctmask %s",
+			chainName, iface, vpnerMarkMask, vpnerMarkMask))
+		b.Add(fmt.Sprintf("-A %s -i %s -m mark ! --mark 0/%s -j RETURN", chainName, iface, vpnerMarkMask))
+	}
 
 	addReturnCIDRs(b, chainName, iface, f.localExceptions)
 
@@ -339,6 +370,11 @@ func addMarkRules(f ipFamily, chainName, ipsetName string, mark int, iface strin
 			"-A %s -i %s -p %s -m set --match-set %s dst -j MARK --set-mark %d",
 			chainName, iface, proto, ipsetName, mark,
 		))
+	}
+
+	if withConnmark {
+		b.Add(fmt.Sprintf("-A %s -i %s -m mark --mark %d -j CONNMARK --save-mark --nfmask %s --ctmask %s",
+			chainName, iface, mark, vpnerMarkMask, vpnerMarkMask))
 	}
 
 	return b.Commit()

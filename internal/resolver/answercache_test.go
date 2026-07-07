@@ -74,6 +74,47 @@ func TestAnswerCacheSkipsNonPositive(t *testing.T) {
 	}
 }
 
+func soaAuthority(name string, ttl, minttl uint32) dns.RR {
+	return &dns.SOA{
+		Hdr:     dns.RR_Header{Name: dns.Fqdn(name), Rrtype: dns.TypeSOA, Class: dns.ClassINET, Ttl: ttl},
+		Ns:      "ns." + dns.Fqdn(name),
+		Mbox:    "hostmaster." + dns.Fqdn(name),
+		Minttl:  minttl,
+		Refresh: 3600,
+		Retry:   600,
+		Expire:  86400,
+	}
+}
+
+func TestAnswerCacheNegativeWithSOA(t *testing.T) {
+	c := newAnswerCache(16)
+
+	nx := new(dns.Msg)
+	nx.SetQuestion("ghost.com.", dns.TypeA)
+	nx.Response, nx.Rcode = true, dns.RcodeNameError
+	nx.Ns = append(nx.Ns, soaAuthority("com", 900, 60))
+	c.put(nx)
+
+	nodata := new(dns.Msg)
+	nodata.SetQuestion("noaaaa.com.", dns.TypeAAAA)
+	nodata.Response, nodata.Rcode = true, dns.RcodeSuccess
+	nodata.Ns = append(nodata.Ns, soaAuthority("com", 900, 60))
+	c.put(nodata)
+
+	q := new(dns.Msg)
+	q.SetQuestion("ghost.com.", dns.TypeA)
+	got := c.get(q)
+	if got == nil || got.Rcode != dns.RcodeNameError {
+		t.Fatalf("NXDOMAIN with SOA should be cached, got %v", got)
+	}
+
+	q2 := new(dns.Msg)
+	q2.SetQuestion("noaaaa.com.", dns.TypeAAAA)
+	if g := c.get(q2); g == nil || g.Rcode != dns.RcodeSuccess || len(g.Answer) != 0 {
+		t.Fatalf("NODATA with SOA should be cached as empty NoError, got %v", g)
+	}
+}
+
 func TestAnswerCachePreservesEDNSOPT(t *testing.T) {
 	c := newAnswerCache(16)
 	resp := positiveA("edns.com", 100)

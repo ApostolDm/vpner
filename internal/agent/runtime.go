@@ -27,6 +27,15 @@ type Runtime struct {
 
 	grpcServers []*grpcInstance
 	shutdown    sync.Once
+
+	mu           sync.Mutex
+	shuttingDown bool
+}
+
+func (r *Runtime) isShuttingDown() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.shuttingDown
 }
 
 func New(cfg conf.FullConfig) (*Runtime, error) {
@@ -58,6 +67,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 		logx.Errorf("Failed to autostart xray chains: %v", err)
 	}
 	r.serverImpl.RestoreXrayRouting(true, true, "")
+	r.serverImpl.RestoreMarkRouting("")
 
 	servers, err := r.buildGRPCServers()
 	if err != nil {
@@ -98,7 +108,23 @@ func (r *Runtime) Run(ctx context.Context) error {
 	}
 }
 
+func (r *Runtime) Reload(configFile string) {
+	defer logx.Recover("reload")
+	if r.isShuttingDown() {
+		logx.Infof("reload ignored: shutdown in progress")
+		return
+	}
+	if _, err := conf.LoadFullConfig(configFile); err != nil {
+		logx.Errorf("reload aborted, config invalid: %v", err)
+		return
+	}
+	logx.Infof("reload: reconciling Xray routing")
+	r.serverImpl.ReconcileRouting()
+	logx.Infof("reload complete")
+}
+
 func (r *Runtime) runWatchdog(ctx context.Context) {
+	defer logx.Recover("routing watchdog")
 	interval := defaultReconcileInterval
 	switch n := r.cfg.Network.ReconcileInterval; {
 	case n < 0:
@@ -123,7 +149,10 @@ func (r *Runtime) runWatchdog(ctx context.Context) {
 				continue
 			}
 			if misses++; misses >= threshold {
-				logx.Warnf("routing watchdog: Xray routing missing from kernel; reconciling")
+				if r.isShuttingDown() {
+					return
+				}
+				logx.Warnf("routing watchdog: managed routing missing from kernel; reconciling")
 				r.serverImpl.ReconcileRouting()
 				misses = 0
 
@@ -154,6 +183,10 @@ func (r *Runtime) buildGRPCServers() ([]*grpcInstance, error) {
 
 func (r *Runtime) shutdownRuntime() {
 	r.shutdown.Do(func() {
+		r.mu.Lock()
+		r.shuttingDown = true
+		r.mu.Unlock()
+
 		for _, inst := range r.grpcServers {
 			inst.Stop()
 		}

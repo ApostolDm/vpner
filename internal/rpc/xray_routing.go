@@ -50,4 +50,5 @@ func (s *VpnerServer) ReconcileRouting() {
 		s.xrayRouter.ClearAppliedState("", true, true)
 	}
 	s.RestoreXrayRouting(true, true, "")
+	s.RestoreMarkRouting("")
 }

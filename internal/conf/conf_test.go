@@ -38,6 +38,47 @@ func TestLoadFullConfigAppliesDefaults(t *testing.T) {
 	if len(cfg.Network.LANInterfaces) != 1 || cfg.Network.LANInterfaces[0] != "br0" {
 		t.Fatalf("unexpected lan interfaces: %#v", cfg.Network.LANInterfaces)
 	}
+	if cfg.Network.IPSetEntryTimeout != 3600 {
+		t.Fatalf("unexpected ipset entry timeout default: %d", cfg.Network.IPSetEntryTimeout)
+	}
+}
+
+func TestLoadFullConfigIPSetEntryTimeout(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	write := func(name, body string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+			t.Fatalf("write config: %v", err)
+		}
+		return path
+	}
+
+	custom, err := LoadFullConfig(write("custom.yaml", "network:\n  ipset-entry-timeout: 600\n"))
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if custom.Network.IPSetEntryTimeout != 600 {
+		t.Fatalf("custom timeout not preserved: %d", custom.Network.IPSetEntryTimeout)
+	}
+
+	disabled, err := LoadFullConfig(write("disabled.yaml", "network:\n  ipset-entry-timeout: -1\n"))
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if disabled.Network.IPSetEntryTimeout != 0 {
+		t.Fatalf("negative must normalize to 0 (disabled): %d", disabled.Network.IPSetEntryTimeout)
+	}
+
+	tiny, err := LoadFullConfig(write("tiny.yaml", "network:\n  ipset-entry-timeout: 20\n"))
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if tiny.Network.IPSetEntryTimeout != 60 {
+		t.Fatalf("sub-minute timeout must clamp to 60: %d", tiny.Network.IPSetEntryTimeout)
+	}
 }
 
 func TestNormalizeInterfaces(t *testing.T) {

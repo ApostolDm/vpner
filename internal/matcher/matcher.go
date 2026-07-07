@@ -32,11 +32,6 @@ func IsCIDR(pattern string) bool {
 	return kindOf(pattern) == RuleCIDR
 }
 
-func IsNetwork(pattern string) bool {
-	k := kindOf(pattern)
-	return k == RuleIP || k == RuleCIDR
-}
-
 func Validate(pattern string) error {
 	if strings.TrimSpace(pattern) == "" {
 		return fmt.Errorf("pattern cannot be empty")
@@ -98,7 +93,11 @@ func Match(pattern, domain string) bool {
 		return strings.Contains(domain, strings.Trim(pattern, "*"))
 	}
 	if strings.HasPrefix(pattern, "*") {
-		return strings.HasSuffix(domain, strings.TrimPrefix(pattern, "*"))
+		suffix := strings.TrimPrefix(pattern, "*")
+		if strings.HasSuffix(domain, suffix) {
+			return true
+		}
+		return strings.HasPrefix(suffix, ".") && domain == suffix[1:]
 	}
 	if strings.HasSuffix(pattern, "*") {
 		return strings.HasPrefix(domain, strings.TrimSuffix(pattern, "*"))

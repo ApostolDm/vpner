@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -14,9 +15,33 @@ import (
 )
 
 const (
-	minIpsetVersion     = "6.0"
-	DefaultIPSetTimeout = 0
+	minIpsetVersion       = "6.0"
+	timeoutRefreshVersion = "6.20"
+	maxIpsetNameLen       = 31
 )
+
+func tempSetName(base, suffix string) string {
+	name := base + suffix
+	if len(name) <= maxIpsetNameLen {
+		return name
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(base))
+	return fmt.Sprintf("vt%08x%s", h.Sum32(), suffix)
+}
+
+func warnIfTimeoutRefreshUnsupported() {
+	if err := initCheck(); err != nil {
+		return
+	}
+	version, err := getIpsetVersionString()
+	if err != nil {
+		return
+	}
+	if compareVersions(version, timeoutRefreshVersion) < 0 {
+		logx.Warnf("ipset %s is older than %s: `add -exist` may not refresh entry timeouts; consider ipset-entry-timeout: -1", version, timeoutRefreshVersion)
+	}
+}
 
 var (
 	ipsetPath            string
@@ -133,58 +158,16 @@ func NewIPset(name, hashtype string, p *Params) (*IPSet, error) {
 	return s, nil
 }
 
-func (s *IPSet) Refresh(entries []string) error {
-	temp := s.Name + "-temp"
-
-	if err := s.createHashSet(temp); err != nil {
-		return err
+func (s *IPSet) timeoutArgs(timeout int) []string {
+	if s.Timeout > 0 || timeout > 0 {
+		return []string{"timeout", strconv.Itoa(timeout)}
 	}
-
-	if out, err := exec.Command(ipsetPath, "flush", temp).CombinedOutput(); err != nil {
-		logx.Warnf("ipset: failed to flush temp set %s: %v (%s)", temp, err, strings.TrimSpace(string(out)))
-	}
-
-	added := 0
-	for _, entry := range entries {
-		if out, err := exec.Command(ipsetPath, "add", temp, entry, "-exist").CombinedOutput(); err != nil {
-			logx.Warnf("ipset: failed to add %s to %s: %v (%s)", entry, temp, err, strings.TrimSpace(string(out)))
-			continue
-		}
-		added++
-	}
-
-	if len(entries) > 0 && added == 0 {
-		if err := destroyIPSet(temp); err != nil {
-			logx.Warnf("ipset: failed to destroy temp set %s after aborted refresh: %v", temp, err)
-		}
-		return fmt.Errorf("ipset refresh aborted for %s: all %d entries failed to load", s.Name, len(entries))
-	}
-
-	if err := Swap(temp, s.Name); err != nil {
-
-		if derr := destroyIPSet(temp); derr != nil {
-			logx.Warnf("ipset: failed to destroy temp set %s after failed swap: %v", temp, derr)
-		}
-		return err
-	}
-
-	return destroyIPSet(temp)
-}
-
-func (s *IPSet) Test(entry string) (bool, error) {
-	out, err := exec.Command(ipsetPath, "test", s.Name, entry).CombinedOutput()
-	if err != nil {
-		return false, fmt.Errorf("test failed for entry %s: %v (%s)", entry, err, out)
-	}
-
-	return !strings.Contains(string(out), "NOT"), nil
+	return nil
 }
 
 func (s *IPSet) Add(entry string, timeout int) error {
 	args := []string{"add", s.Name, entry}
-	if timeout > 0 {
-		args = append(args, "timeout", strconv.Itoa(timeout))
-	}
+	args = append(args, s.timeoutArgs(timeout)...)
 	args = append(args, "-exist")
 
 	if out, err := exec.Command(ipsetPath, args...).CombinedOutput(); err != nil {
@@ -195,9 +178,7 @@ func (s *IPSet) Add(entry string, timeout int) error {
 
 func (s *IPSet) AddComment(entry, comment string, timeout int) error {
 	args := []string{"add", s.Name, entry}
-	if timeout > 0 {
-		args = append(args, "timeout", strconv.Itoa(timeout))
-	}
+	args = append(args, s.timeoutArgs(timeout)...)
 	args = append(args, "comment", comment, "-exist")
 	if out, err := exec.Command(ipsetPath, args...).CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to add entry %s with comment: %v (%s)", entry, err, out)
@@ -205,14 +186,36 @@ func (s *IPSet) AddComment(entry, comment string, timeout int) error {
 	return nil
 }
 
-func (s *IPSet) AddOption(entry, option string, timeout int) error {
-	args := []string{
-		"add", s.Name, entry,
-		option, "timeout", strconv.Itoa(timeout),
-		"-exist",
+func buildBulkAddScript(setName string, entries []string, comment string, timeout int, hasTimeout bool) string {
+	var buf bytes.Buffer
+	for _, entry := range entries {
+		buf.WriteString("add ")
+		buf.WriteString(setName)
+		buf.WriteByte(' ')
+		buf.WriteString(entry)
+		if hasTimeout {
+			buf.WriteString(" timeout ")
+			buf.WriteString(strconv.Itoa(timeout))
+		}
+		buf.WriteString(" comment \"")
+		buf.WriteString(comment)
+		buf.WriteString("\"\n")
 	}
-	if out, err := exec.Command(ipsetPath, args...).CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to add entry %s with option %s: %v (%s)", entry, option, err, out)
+	return buf.String()
+}
+
+func (s *IPSet) BulkAddComment(entries []string, comment string, timeout int) error {
+	if len(entries) == 0 {
+		return nil
+	}
+	if err := initCheck(); err != nil {
+		return err
+	}
+	script := buildBulkAddScript(s.Name, entries, comment, timeout, s.Timeout > 0)
+	cmd := exec.Command(ipsetPath, "-exist", "restore")
+	cmd.Stdin = strings.NewReader(script)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to bulk add %d entries to %s: %v (%s)", len(entries), s.Name, err, out)
 	}
 	return nil
 }
@@ -225,47 +228,10 @@ func (s *IPSet) Del(entry string) error {
 	return nil
 }
 
-func (s *IPSet) Flush() error {
-	out, err := exec.Command(ipsetPath, "flush", s.Name).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to flush set %s: %v (%s)", s.Name, err, out)
-	}
-	return nil
-}
-
-func (s *IPSet) List() ([]string, error) {
-	out, err := exec.Command(ipsetPath, "list", s.Name).CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("failed to list set %s: %v (%s)", s.Name, err, out)
-	}
-	r := regexp.MustCompile(`(?m)^(.*\n)*Members:\n`)
-	cleaned := r.ReplaceAllString(string(out), "")
-	list := strings.Split(strings.TrimSpace(cleaned), "\n")
-	if len(list) == 1 && list[0] == "" {
-		return nil, nil
-	}
-	return list, nil
-}
-
-func (s *IPSet) Destroy() error {
-	return destroyIPSet(s.Name)
-}
-
 func destroyIPSet(name string) error {
 	out, err := exec.Command(ipsetPath, "destroy", name).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to destroy ipset %s: %v (%s)", name, err, out)
-	}
-	return nil
-}
-
-func DestroyAll() error {
-	if err := initCheck(); err != nil {
-		return err
-	}
-	out, err := exec.Command(ipsetPath, "destroy").CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to destroy all ipsets: %v (%s)", err, out)
 	}
 	return nil
 }
@@ -445,7 +411,7 @@ func parseTimeoutValue(line string) (int, bool) {
 }
 
 func recreateIPSetWithSwap(name string, set *IPSet, entries []string) error {
-	temp := name + "-tmp"
+	temp := tempSetName(name, "-tmp")
 	if err := set.createHashSet(temp); err != nil {
 		return err
 	}

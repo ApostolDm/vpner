@@ -76,6 +76,7 @@ type NetworkConfig struct {
 	EnableTProxy      bool     `yaml:"enable-tproxy"`
 	IPSetDebug        bool     `yaml:"ipset-debug"`
 	IPSetStaleQueries int      `yaml:"ipset-stale-queries"`
+	IPSetEntryTimeout int      `yaml:"ipset-entry-timeout"`
 	ReconcileInterval int      `yaml:"reconcile-interval"`
 }
 
@@ -130,6 +131,14 @@ func LoadFullConfig(path string) (*FullConfig, error) {
 	cfg.Network.LANInterfaces = normalizeInterfaces(cfg.Network.LANInterfaces, cfg.Network.LANInterface)
 	if len(cfg.Network.LANInterfaces) == 0 {
 		cfg.Network.LANInterfaces = []string{"br0"}
+	}
+	switch {
+	case cfg.Network.IPSetEntryTimeout == 0:
+		cfg.Network.IPSetEntryTimeout = 3600
+	case cfg.Network.IPSetEntryTimeout < 0:
+		cfg.Network.IPSetEntryTimeout = 0
+	case cfg.Network.IPSetEntryTimeout < 60:
+		cfg.Network.IPSetEntryTimeout = 60
 	}
 
 	return &cfg, nil

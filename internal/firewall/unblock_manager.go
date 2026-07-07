@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/ApostolDmitry/vpner/internal/logx"
@@ -83,15 +84,20 @@ type UnblockManager struct {
 	ipv6Enabled       bool
 	ipsetDebug        bool
 	ipsetStaleQueries int
+	ipsetEntryTimeout int
 }
 
-func NewUnblockManager(path string, ipv6Enabled bool, ipsetDebug bool, ipsetStaleQueries int, registry *IPSetRegistry) *UnblockManager {
+func NewUnblockManager(path string, ipv6Enabled bool, ipsetDebug bool, ipsetStaleQueries, ipsetEntryTimeout int, registry *IPSetRegistry) *UnblockManager {
 	if path == "" {
 		path = defaultRulesFile
+	}
+	if ipsetEntryTimeout < 0 {
+		ipsetEntryTimeout = 0
 	}
 	if registry == nil {
 		registry = NewIPSetRegistry()
 	}
+	registry.SetEntryTimeout(ipsetEntryTimeout)
 	return &UnblockManager{
 		FilePath:          path,
 		cachedConf:        newVPNRulesConfig(),
@@ -99,6 +105,7 @@ func NewUnblockManager(path string, ipv6Enabled bool, ipsetDebug bool, ipsetStal
 		ipv6Enabled:       ipv6Enabled,
 		ipsetDebug:        ipsetDebug,
 		ipsetStaleQueries: ipsetStaleQueries,
+		ipsetEntryTimeout: ipsetEntryTimeout,
 	}
 }
 
@@ -227,12 +234,12 @@ func (m *UnblockManager) DelChain(vpnType, chainName string) error {
 	set, ok := m.cachedConf.lookupSet(vpnType)
 	if !ok {
 		m.mu.Unlock()
-		return fmt.Errorf("unknown or empty VPN type: %s", vpnType)
+		return nil
 	}
 	entries, exists := set[chainName]
 	if !exists {
 		m.mu.Unlock()
-		return fmt.Errorf("chain not found: %s", chainName)
+		return nil
 	}
 	delete(set, chainName)
 	if len(set) == 0 {
@@ -306,6 +313,13 @@ func (m *UnblockManager) IPSetStaleQueries() int {
 	return m.ipsetStaleQueries
 }
 
+func (m *UnblockManager) IPSetEntryTimeout() int {
+	if m == nil {
+		return 0
+	}
+	return m.ipsetEntryTimeout
+}
+
 func (m *UnblockManager) restoreStaticRules() error {
 	entries := m.staticRulesSnapshot()
 	for _, entry := range entries {
@@ -347,22 +361,24 @@ func (m *UnblockManager) applyStaticEntry(vpnType, chainName, pattern string, ad
 
 	var (
 		ipsetName string
-		set       *IPSet
+		family    string
 		err       error
 	)
 	if isV6 {
 		ipsetName, err = IpsetName6(vpnType, chainName)
-		if err != nil {
-			return err
-		}
-		set, err = m.registry.ObtainOrCreateFamily(ipsetName, "inet6")
+		family = "inet6"
 	} else {
 		ipsetName, err = IpsetName(vpnType, chainName)
-		if err != nil {
-			return err
-		}
-		set, err = m.registry.ObtainOrCreateFamily(ipsetName, "inet")
+		family = "inet"
 	}
+	if err != nil {
+		return err
+	}
+
+	unlock := m.registry.LockSet(ipsetName)
+	defer unlock()
+
+	set, err := m.registry.ObtainOrCreateFamily(ipsetName, family)
 	if err != nil {
 		return err
 	}
@@ -370,12 +386,27 @@ func (m *UnblockManager) applyStaticEntry(vpnType, chainName, pattern string, ad
 		if m.ipsetDebug {
 			logx.Infof("ipset add: set=%s entry=%s reason=static-rule vpn=%s chain=%s", ipsetName, pattern, vpnType, chainName)
 		}
-		return set.Add(pattern, 0)
+		if err := set.Add(pattern, 0); err != nil {
+			return err
+		}
+		m.registry.RegisterStaticEntry(ipsetName, normalizeStaticEntry(pattern, isV6))
+		return nil
 	}
 	if m.ipsetDebug {
 		logx.Infof("ipset del: set=%s entry=%s reason=static-rule-delete vpn=%s chain=%s", ipsetName, pattern, vpnType, chainName)
 	}
-	return set.Del(pattern)
+	if err := set.Del(pattern); err != nil {
+		return err
+	}
+	m.registry.UnregisterStaticEntry(ipsetName, normalizeStaticEntry(pattern, isV6))
+	return nil
+}
+
+func normalizeStaticEntry(pattern string, isV6 bool) string {
+	if isV6 {
+		return strings.TrimSuffix(pattern, "/128")
+	}
+	return strings.TrimSuffix(pattern, "/32")
 }
 
 type ruleRef struct {

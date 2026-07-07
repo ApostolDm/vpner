@@ -5,6 +5,7 @@ import (
 	"time"
 
 	grpcpb "github.com/ApostolDmitry/vpner/internal/grpc"
+	"github.com/ApostolDmitry/vpner/internal/logx"
 )
 
 func (s *VpnerServer) Status(_ context.Context, _ *grpcpb.Empty) (*grpcpb.StatusResponse, error) {
@@ -63,6 +64,29 @@ func (s *VpnerServer) Status(_ context.Context, _ *grpcpb.Empty) (*grpcpb.Status
 			Failures:      st.Failures,
 			LastLatencyMs: st.LastLatency.Milliseconds(),
 		})
+	}
+
+	qs := s.dns.QueryStats()
+	resp.QueryStats = &grpcpb.QueryStats{
+		Total:     qs.Total,
+		CacheHits: qs.CacheHits,
+		Custom:    qs.Custom,
+		Doh:       qs.DoH,
+		Servfail:  qs.Servfail,
+		Refused:   qs.Refused,
+		Nxdomain:  qs.NXDomain,
+	}
+
+	for _, ev := range logx.Recent() {
+		resp.RecentEvents = append(resp.RecentEvents, &grpcpb.LogEvent{
+			UnixMs:  ev.UnixMs,
+			Level:   ev.Level,
+			Message: ev.Message,
+		})
+	}
+
+	if s.ipsetCounts != nil {
+		resp.IpsetEntriesV4, resp.IpsetEntriesV6 = s.ipsetCounts()
 	}
 
 	return resp, nil

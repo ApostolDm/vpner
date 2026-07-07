@@ -24,10 +24,6 @@ var (
 
 func (k Kind) String() string { return string(k) }
 
-func All() []Kind { return append([]Kind(nil), all...) }
-
-func Router() []Kind { return append([]Kind(nil), router...) }
-
 func IsKnown(value string) bool {
 	_, ok := knownSet[Kind(value)]
 	return ok

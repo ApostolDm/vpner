@@ -37,3 +37,8 @@ network:
   enable-tproxy: false
   ipset-debug: false
   ipset-stale-queries: 100
+  # Kernel timeout (seconds) for DNS-resolved ipset entries. Every DNS answer
+  # refreshes the timer, so IPs in active use never expire while rotated-out
+  # ones age out automatically. 0 = default (3600), minimum 60,
+  # -1 = legacy mode (reactive deletion driven by ipset-stale-queries).
+  ipset-entry-timeout: 3600

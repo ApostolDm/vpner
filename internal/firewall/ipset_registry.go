@@ -1,13 +1,32 @@
 package firewall
 
-import "sync"
+import (
+	"strings"
+	"sync"
+	"time"
+)
+
+type refreshRecord struct {
+	ips string
+	at  time.Time
+}
+
+const refreshSeenMax = 8192
 
 type IPSetRegistry struct {
-	mu   sync.Mutex
-	sets map[string]*IPSet
+	mu           sync.Mutex
+	sets         map[string]*IPSet
+	entryTimeout int
+	legacySwept  map[string]bool
 
 	staleMu     sync.Mutex
 	staleCounts map[string]map[string]int
+
+	refreshMu   sync.Mutex
+	refreshSeen map[string]refreshRecord
+
+	staticMu      sync.Mutex
+	staticEntries map[string]map[string]struct{}
 
 	opMu    sync.Mutex
 	opLocks map[string]*sync.Mutex
@@ -15,27 +34,126 @@ type IPSetRegistry struct {
 
 func NewIPSetRegistry() *IPSetRegistry {
 	return &IPSetRegistry{
-		sets:        make(map[string]*IPSet),
-		staleCounts: make(map[string]map[string]int),
-		opLocks:     make(map[string]*sync.Mutex),
+		sets:          make(map[string]*IPSet),
+		legacySwept:   make(map[string]bool),
+		staleCounts:   make(map[string]map[string]int),
+		refreshSeen:   make(map[string]refreshRecord),
+		staticEntries: make(map[string]map[string]struct{}),
+		opLocks:       make(map[string]*sync.Mutex),
 	}
+}
+
+func (r *IPSetRegistry) SetEntryTimeout(seconds int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if seconds < 0 {
+		seconds = 0
+	}
+	r.entryTimeout = seconds
 }
 
 func (r *IPSetRegistry) ObtainOrCreateFamily(name, family string) (*IPSet, error) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	if set, ok := r.sets[name]; ok {
+		r.mu.Unlock()
 		return set, nil
 	}
+	timeout := r.entryTimeout
+	r.mu.Unlock()
 
-	params := &Params{Timeout: DefaultIPSetTimeout, WithComments: true, HashFamily: family}
+	params := &Params{Timeout: timeout, WithComments: true, HashFamily: family}
 	set, err := NewIPset(name, "hash:net", params)
 	if err != nil {
 		return nil, err
 	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if existing, ok := r.sets[name]; ok {
+		return existing, nil
+	}
 	r.sets[name] = set
 	return set, nil
+}
+
+func (r *IPSetRegistry) IsLegacySwept(name string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.legacySwept[name]
+}
+
+func (r *IPSetRegistry) MarkLegacySwept(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.legacySwept[name] = true
+}
+
+func (r *IPSetRegistry) RecentlyRefreshed(key, fingerprint string, window time.Duration) bool {
+	r.refreshMu.Lock()
+	defer r.refreshMu.Unlock()
+	rec, ok := r.refreshSeen[key]
+	return ok && rec.ips == fingerprint && time.Since(rec.at) < window
+}
+
+func (r *IPSetRegistry) MarkRefreshed(key, fingerprint string, window time.Duration) {
+	r.refreshMu.Lock()
+	defer r.refreshMu.Unlock()
+	if len(r.refreshSeen) >= refreshSeenMax {
+		for k, rec := range r.refreshSeen {
+			if time.Since(rec.at) >= window {
+				delete(r.refreshSeen, k)
+			}
+		}
+		if len(r.refreshSeen) >= refreshSeenMax {
+			r.refreshSeen = make(map[string]refreshRecord)
+		}
+	}
+	r.refreshSeen[key] = refreshRecord{ips: fingerprint, at: time.Now()}
+}
+
+func (r *IPSetRegistry) ClearRefreshKey(key string) {
+	r.refreshMu.Lock()
+	defer r.refreshMu.Unlock()
+	delete(r.refreshSeen, key)
+}
+
+func (r *IPSetRegistry) ClearRefreshByPrefix(prefix string) {
+	r.refreshMu.Lock()
+	defer r.refreshMu.Unlock()
+	for key := range r.refreshSeen {
+		if strings.HasPrefix(key, prefix) {
+			delete(r.refreshSeen, key)
+		}
+	}
+}
+
+func (r *IPSetRegistry) RegisterStaticEntry(set, entry string) {
+	r.staticMu.Lock()
+	defer r.staticMu.Unlock()
+	entries, ok := r.staticEntries[set]
+	if !ok {
+		entries = make(map[string]struct{})
+		r.staticEntries[set] = entries
+	}
+	entries[entry] = struct{}{}
+}
+
+func (r *IPSetRegistry) UnregisterStaticEntry(set, entry string) {
+	r.staticMu.Lock()
+	defer r.staticMu.Unlock()
+	if entries, ok := r.staticEntries[set]; ok {
+		delete(entries, entry)
+		if len(entries) == 0 {
+			delete(r.staticEntries, set)
+		}
+	}
+}
+
+func (r *IPSetRegistry) IsStaticEntry(set, entry string) bool {
+	r.staticMu.Lock()
+	defer r.staticMu.Unlock()
+	_, ok := r.staticEntries[set][entry]
+	return ok
 }
 
 func (r *IPSetRegistry) LockSet(name string) func() {

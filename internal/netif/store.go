@@ -55,15 +55,20 @@ func (s *trackedStore) Delete(id string) error {
 }
 
 func (s *trackedStore) LookupType(name string) (string, bool) {
+	iface, exists := s.LookupInterface(name)
+	return iface.Type, exists
+}
+
+func (s *trackedStore) LookupInterface(name string) (Interface, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	cfg, err := s.readLocked()
 	if err != nil {
-		return "", false
+		return Interface{}, false
 	}
 	iface, exists := cfg.Interfaces[name]
-	return iface.Type, exists
+	return iface, exists
 }
 
 func (s *trackedStore) modify(fn func(map[string]Interface) error) error {

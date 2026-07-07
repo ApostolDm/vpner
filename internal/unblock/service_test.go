@@ -28,12 +28,12 @@ func (s xrayLookupStub) IsChain(name string) bool {
 func TestAddRuleAndList(t *testing.T) {
 	t.Parallel()
 
-	manager := firewall.NewUnblockManager(filepath.Join(t.TempDir(), "rules.yaml"), false, false, 0, nil)
+	manager := firewall.NewUnblockManager(filepath.Join(t.TempDir(), "rules.yaml"), false, false, 0, 0, nil)
 	service := New(manager, interfaceLookupStub{
 		types: map[string]string{"ovpn0": vpnkind.OpenVPN.String()},
 	}, xrayLookupStub{})
 
-	if err := service.AddRule("ovpn0", "*.example.com"); err != nil {
+	if _, err := service.AddRule("ovpn0", "*.example.com"); err != nil {
 		t.Fatalf("AddRule: %v", err)
 	}
 
@@ -55,28 +55,59 @@ func TestAddRuleAndList(t *testing.T) {
 func TestAddRuleRejectsOverlap(t *testing.T) {
 	t.Parallel()
 
-	manager := firewall.NewUnblockManager(filepath.Join(t.TempDir(), "rules.yaml"), false, false, 0, nil)
+	manager := firewall.NewUnblockManager(filepath.Join(t.TempDir(), "rules.yaml"), false, false, 0, 0, nil)
 	service := New(manager, interfaceLookupStub{
 		types: map[string]string{"ovpn0": vpnkind.OpenVPN.String()},
 	}, xrayLookupStub{})
 
-	if err := service.AddRule("ovpn0", "*.example.com"); err != nil {
+	if _, err := service.AddRule("ovpn0", "*.example.com"); err != nil {
 		t.Fatalf("first AddRule: %v", err)
 	}
-	if err := service.AddRule("ovpn0", "api.example.com"); err == nil {
+	if _, err := service.AddRule("ovpn0", "api.example.com"); err == nil {
 		t.Fatalf("expected overlap error")
+	}
+}
+
+func TestAddDeleteRuleReportChainAndCount(t *testing.T) {
+	t.Parallel()
+
+	manager := firewall.NewUnblockManager(filepath.Join(t.TempDir(), "rules.yaml"), false, false, 0, 0, nil)
+	service := New(manager, interfaceLookupStub{
+		types: map[string]string{"ovpn0": vpnkind.OpenVPN.String()},
+	}, xrayLookupStub{})
+
+	vpnType, err := service.AddRule("ovpn0", "api.example.com")
+	if err != nil {
+		t.Fatalf("AddRule: %v", err)
+	}
+	if vpnType != vpnkind.OpenVPN.String() {
+		t.Fatalf("unexpected vpn type: %s", vpnType)
+	}
+	if got := service.RuleCount(vpnType, "ovpn0"); got != 1 {
+		t.Fatalf("unexpected rule count: %d", got)
+	}
+
+	delType, delChain, err := service.DeleteRule("api.example.com")
+	if err != nil {
+		t.Fatalf("DeleteRule: %v", err)
+	}
+	if delType != vpnkind.OpenVPN.String() || delChain != "ovpn0" {
+		t.Fatalf("unexpected delete result: %s/%s", delType, delChain)
+	}
+	if got := service.RuleCount(delType, delChain); got != 0 {
+		t.Fatalf("unexpected rule count after delete: %d", got)
 	}
 }
 
 func TestResolveXrayChainType(t *testing.T) {
 	t.Parallel()
 
-	manager := firewall.NewUnblockManager(filepath.Join(t.TempDir(), "rules.yaml"), false, false, 0, nil)
+	manager := firewall.NewUnblockManager(filepath.Join(t.TempDir(), "rules.yaml"), false, false, 0, 0, nil)
 	service := New(manager, interfaceLookupStub{}, xrayLookupStub{
 		chains: map[string]bool{"xray1": true},
 	})
 
-	if err := service.AddRule("xray1", "*.netflix.com"); err != nil {
+	if _, err := service.AddRule("xray1", "*.netflix.com"); err != nil {
 		t.Fatalf("AddRule for xray chain: %v", err)
 	}
 

@@ -5,9 +5,53 @@ import (
 	"io"
 	"log"
 	"os"
+	"runtime/debug"
 	"strings"
 	"sync"
+	"time"
 )
+
+func Recover(where string) {
+	if r := recover(); r != nil {
+		Errorf("panic in %s: %v\n%s", where, r, debug.Stack())
+	}
+}
+
+type Event struct {
+	UnixMs  int64
+	Level   string
+	Message string
+}
+
+const eventRingCap = 50
+
+var (
+	eventsMu  sync.Mutex
+	events    [eventRingCap]Event
+	eventsLen int
+	eventsPos int
+)
+
+func recordEvent(l Level, msg string) {
+	eventsMu.Lock()
+	events[eventsPos] = Event{UnixMs: time.Now().UnixMilli(), Level: LevelTag(l), Message: msg}
+	eventsPos = (eventsPos + 1) % eventRingCap
+	if eventsLen < eventRingCap {
+		eventsLen++
+	}
+	eventsMu.Unlock()
+}
+
+func Recent() []Event {
+	eventsMu.Lock()
+	defer eventsMu.Unlock()
+	out := make([]Event, 0, eventsLen)
+	start := (eventsPos - eventsLen + eventRingCap) % eventRingCap
+	for i := 0; i < eventsLen; i++ {
+		out = append(out, events[(start+i)%eventRingCap])
+	}
+	return out
+}
 
 type Level int
 
@@ -62,10 +106,18 @@ func Errorf(format string, a ...any) { emit(LevelError, format, a...) }
 func emit(l Level, format string, a ...any) {
 	mu.RLock()
 	defer mu.RUnlock()
+	notable := l <= LevelWarn
+	if l > level && !notable {
+		return
+	}
+	msg := message(format, a...)
+	if notable {
+		recordEvent(l, msg)
+	}
 	if l > level {
 		return
 	}
-	out.Log(l, message(format, a...))
+	out.Log(l, msg)
 }
 
 func message(format string, a ...any) string {

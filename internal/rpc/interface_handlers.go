@@ -76,9 +76,12 @@ func (s *VpnerServer) InterfaceDel(ctx context.Context, req *grpcpb.InterfaceAct
 	if req.Id == "" {
 		return errorGeneric("interface id is required"), nil
 	}
-	vpnType, exists := s.ifManager.LookupRouterType(req.Id)
-	if exists {
-		if err := s.unblock.DeleteChain(vpnType, req.Id); err != nil {
+	iface, tracked := s.ifManager.LookupTracked(req.Id)
+	if tracked {
+		if err := s.removeMarkRouting(iface.Type, req.Id); err != nil {
+			return errorGeneric(fmt.Sprintf("Failed to remove routing: %v", err)), nil
+		}
+		if err := s.unblock.DeleteChain(iface.Type, req.Id); err != nil {
 			return errorGeneric(fmt.Sprintf("Failed to delete unblock chain: %v", err)), nil
 		}
 	}

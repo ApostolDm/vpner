@@ -28,13 +28,3 @@ func EnsureDir(path string) error {
 	}
 	return nil
 }
-
-func EnsureExecutable(path string) error {
-	if _, err := os.Stat(path); err != nil {
-		return fmt.Errorf("file %s is not created: %w", path, err)
-	}
-	if err := os.Chmod(path, 0755); err != nil {
-		return fmt.Errorf("chmod %s: %w", path, err)
-	}
-	return nil
-}

@@ -74,8 +74,8 @@ func (m *Manager) LookupTrackedType(name string) (string, bool) {
 	return m.store.LookupType(name)
 }
 
-func (m *Manager) LookupRouterType(name string) (string, bool) {
-	return m.router.LookupType(context.Background(), name)
+func (m *Manager) LookupTracked(name string) (Interface, bool) {
+	return m.store.LookupInterface(name)
 }
 
 func (m *Manager) FetchInterfaces() (map[string]Interface, error) {

@@ -17,9 +17,6 @@ func (s *VpnerServer) XrayList(_ context.Context, _ *grpcpb.Empty) (*grpcpb.Xray
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to retrieve Xray list: %v", err)
 	}
-	if len(xrayList) == 0 {
-		return nil, status.Errorf(codes.Internal, "no Xray configurations found")
-	}
 	var xrayConfigs []*grpcpb.XrayInfo
 	for name, config := range xrayList {
 		isRunning := s.xrayService.IsRunning(name)
@@ -97,6 +94,7 @@ func (s *VpnerServer) HookRestore(ctx context.Context, _ *grpcpb.Empty) (*grpcpb
 	}
 
 	s.RestoreXrayRouting(restoreV4, restoreV6, scope.Table)
+	s.RestoreMarkRouting(scope.Table)
 	return successGeneric("Routing restore triggered"), nil
 }
 

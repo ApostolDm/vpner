@@ -71,28 +71,28 @@ func (s *Service) List() ([]RuleGroup, error) {
 	return result, nil
 }
 
-func (s *Service) AddRule(chainName, pattern string) error {
+func (s *Service) AddRule(chainName, pattern string) (string, error) {
 	if chainName == "" {
-		return fmt.Errorf("chain name is required")
+		return "", fmt.Errorf("chain name is required")
 	}
 	if err := matcher.Validate(pattern); err != nil {
-		return fmt.Errorf("invalid pattern: %w", err)
+		return "", fmt.Errorf("invalid pattern: %w", err)
 	}
 
 	vpnType, exists := s.resolveChainType(chainName)
 	if !exists {
-		return fmt.Errorf("chain name %q does not exist", chainName)
+		return "", fmt.Errorf("chain name %q does not exist", chainName)
 	}
 
 	allRules, err := s.manager.GetAllRules()
 	if err != nil {
-		return fmt.Errorf("failed to load existing rules: %w", err)
+		return "", fmt.Errorf("failed to load existing rules: %w", err)
 	}
 	for typ, set := range allRules.Rules {
 		for existingChain, rules := range set {
 			for _, existing := range rules {
 				if matcher.Overlap(existing, pattern) {
-					return fmt.Errorf(
+					return "", fmt.Errorf(
 						"new rule %q overlaps with existing rule %q in [%s/%s]",
 						pattern,
 						existing,
@@ -105,25 +105,33 @@ func (s *Service) AddRule(chainName, pattern string) error {
 	}
 
 	if err := s.manager.AddRule(vpnType, chainName, pattern); err != nil {
-		return fmt.Errorf("failed to add rule: %w", err)
+		return "", fmt.Errorf("failed to add rule: %w", err)
 	}
 
-	return nil
+	return vpnType, nil
 }
 
-func (s *Service) DeleteRule(pattern string) error {
+func (s *Service) DeleteRule(pattern string) (string, string, error) {
 	if err := matcher.Validate(pattern); err != nil {
-		return fmt.Errorf("invalid pattern: %w", err)
+		return "", "", fmt.Errorf("invalid pattern: %w", err)
 	}
 
 	vpnType, chainName, _, exists := s.manager.MatchDomain(pattern)
 	if !exists {
-		return fmt.Errorf("rule does not exist")
+		return "", "", fmt.Errorf("rule does not exist")
 	}
 	if err := s.manager.DelRule(vpnType, chainName, pattern); err != nil {
-		return fmt.Errorf("failed to delete rule: %w", err)
+		return "", "", fmt.Errorf("failed to delete rule: %w", err)
 	}
-	return nil
+	return vpnType, chainName, nil
+}
+
+func (s *Service) RuleCount(vpnType, chainName string) int {
+	rules, err := s.manager.GetRules(vpnType, chainName)
+	if err != nil {
+		return 0
+	}
+	return len(rules)
 }
 
 func (s *Service) DeleteChain(vpnType, chainName string) error {
@@ -142,6 +150,7 @@ func (s *Service) RuntimeOptions() firewall.RuleRuntimeOptions {
 		IPv6Enabled:       s.manager.IPv6Enabled(),
 		IPSetDebug:        s.manager.IPSetDebug(),
 		IPSetStaleQueries: s.manager.IPSetStaleQueries(),
+		IPSetEntryTimeout: s.manager.IPSetEntryTimeout(),
 	}
 }
 

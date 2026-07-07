@@ -42,9 +42,10 @@ func buildRuntimeGraph(cfg conf.FullConfig) (*runtimeGraph, error) {
 		return nil, fmt.Errorf("failed to init xray manager: %w", err)
 	}
 
-	iptables := firewall.NewIptablesManager(cfg.Network.EnableIPv6, tproxyEnabled)
+	iptables := firewall.NewIptablesManager(cfg.Network.EnableIPv6, tproxyEnabled, cfg.Network.IPSetEntryTimeout)
 	iptables.CleanupStaleState()
 	xrayRouter := routing.NewXrayRouter(iptables, cfg.Network.LANInterfaces)
+	markRouter := routing.NewMarkRouter(iptables, cfg.Network.LANInterfaces)
 
 	ifManager := netif.NewInterfaceManager("")
 	xraySvc := proxysvc.New(xrayMgr)
@@ -54,6 +55,7 @@ func buildRuntimeGraph(cfg conf.FullConfig) (*runtimeGraph, error) {
 		cfg.Network.EnableIPv6,
 		cfg.Network.IPSetDebug,
 		cfg.Network.IPSetStaleQueries,
+		cfg.Network.IPSetEntryTimeout,
 		ipsetRegistry,
 	)
 	unblockSvc := unblock.New(unblockManager, ifManager, xraySvc)
@@ -69,12 +71,14 @@ func buildRuntimeGraph(cfg conf.FullConfig) (*runtimeGraph, error) {
 		InterfaceManager: ifManager,
 		XrayService:      xraySvc,
 		XrayRouter:       xrayRouter,
+		MarkRouter:       markRouter,
 		Info: rpc.StatusInfo{
 			Version:       buildinfo.String(),
 			StartedAt:     time.Now(),
 			DNSPort:       cfg.DNSServer.Port,
 			TProxyEnabled: tproxyEnabled,
 		},
+		IPSetCounts: firewall.ManagedIpsetCounts,
 	}
 
 	srv := rpc.NewVpnerServer(deps)

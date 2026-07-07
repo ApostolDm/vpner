@@ -55,12 +55,3 @@ func (c *routerClient) FetchInterfaces(ctx context.Context) (map[string]Interfac
 	}
 	return interfacesFiltered, nil
 }
-
-func (c *routerClient) LookupType(ctx context.Context, name string) (string, bool) {
-	interfacesMap, err := c.FetchInterfaces(ctx)
-	if err != nil {
-		return "", false
-	}
-	iface, exists := interfacesMap[name]
-	return iface.Type, exists
-}

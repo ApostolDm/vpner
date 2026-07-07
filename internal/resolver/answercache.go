@@ -11,6 +11,7 @@ import (
 const (
 	answerCacheDefaultMax = 4096
 	answerCacheTTLCap     = 3600
+	answerCacheNegTTLCap  = 300
 )
 
 type answerCache struct {
@@ -64,10 +65,10 @@ func (c *answerCache) get(req *dns.Msg) *dns.Msg {
 }
 
 func (c *answerCache) put(resp *dns.Msg) {
-	if len(resp.Question) != 1 || resp.Rcode != dns.RcodeSuccess || len(resp.Answer) == 0 {
+	if len(resp.Question) != 1 {
 		return
 	}
-	ttl := minAnswerTTL(resp)
+	ttl := cacheableTTL(resp)
 	if ttl == 0 {
 		return
 	}
@@ -98,6 +99,41 @@ func (c *answerCache) evictLocked() {
 		delete(c.entries, k)
 		return
 	}
+}
+
+func cacheableTTL(m *dns.Msg) uint32 {
+	switch m.Rcode {
+	case dns.RcodeSuccess:
+		if len(m.Answer) > 0 {
+			return minAnswerTTL(m)
+		}
+		return negativeTTL(m)
+	case dns.RcodeNameError:
+		return negativeTTL(m)
+	default:
+		return 0
+	}
+}
+
+func negativeTTL(m *dns.Msg) uint32 {
+	for _, rr := range m.Ns {
+		soa, ok := rr.(*dns.SOA)
+		if !ok {
+			continue
+		}
+		ttl := soa.Hdr.Ttl
+		if soa.Minttl < ttl {
+			ttl = soa.Minttl
+		}
+		if ttl == 0 {
+			return 0
+		}
+		if ttl > answerCacheNegTTLCap {
+			ttl = answerCacheNegTTLCap
+		}
+		return ttl
+	}
+	return 0
 }
 
 func minAnswerTTL(m *dns.Msg) uint32 {

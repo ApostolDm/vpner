@@ -6,6 +6,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/ApostolDmitry/vpner/internal/conf"
@@ -13,6 +14,26 @@ import (
 	"github.com/ApostolDmitry/vpner/internal/matcher"
 	"github.com/miekg/dns"
 )
+
+type QueryStats struct {
+	Total     int64
+	CacheHits int64
+	Custom    int64
+	DoH       int64
+	Servfail  int64
+	Refused   int64
+	NXDomain  int64
+}
+
+type queryMetrics struct {
+	total     atomic.Int64
+	cacheHits atomic.Int64
+	custom    atomic.Int64
+	doh       atomic.Int64
+	servfail  atomic.Int64
+	refused   atomic.Int64
+	nxdomain  atomic.Int64
+}
 
 const defaultCustomResolveTimeout = 3 * time.Second
 
@@ -22,7 +43,12 @@ type compiledResolverRule struct {
 }
 
 type IPSyncer interface {
+	PrepareAnswers(domain string, ips []net.IP) error
 	SyncFromAnswers(domain string, ips []net.IP) error
+}
+
+type aaaaFilter interface {
+	DropAAAA(domain string) bool
 }
 
 type Server struct {
@@ -37,6 +63,19 @@ type Server struct {
 	udpServer     *dns.Server
 	tcpServer     *dns.Server
 	notifyStarted func()
+	metrics       queryMetrics
+}
+
+func (s *Server) Stats() QueryStats {
+	return QueryStats{
+		Total:     s.metrics.total.Load(),
+		CacheHits: s.metrics.cacheHits.Load(),
+		Custom:    s.metrics.custom.Load(),
+		DoH:       s.metrics.doh.Load(),
+		Servfail:  s.metrics.servfail.Load(),
+		Refused:   s.metrics.refused.Load(),
+		NXDomain:  s.metrics.nxdomain.Load(),
+	}
 }
 
 func NewServer(cfg conf.ServerConfig, ipManager IPSyncer, resolver *Upstream) *Server {
@@ -118,10 +157,17 @@ func (s *Server) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 		}
 	}
 	servfail := func() {
+		s.metrics.servfail.Add(1)
 		m := new(dns.Msg)
 		m.SetRcode(r, dns.RcodeServerFailure)
 		reply(m)
 	}
+	countResult := func(m *dns.Msg) {
+		if m != nil && m.Rcode == dns.RcodeNameError {
+			s.metrics.nxdomain.Add(1)
+		}
+	}
+	s.metrics.total.Add(1)
 
 	defer func() {
 		if rec := recover(); rec != nil {
@@ -140,6 +186,7 @@ func (s *Server) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	if s.limiter != nil && !s.limiter.allow(formatRemoteAddr(w)) {
+		s.metrics.refused.Add(1)
 		m := new(dns.Msg)
 		m.SetRcode(r, dns.RcodeRefused)
 		reply(m)
@@ -147,9 +194,14 @@ func (s *Server) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	}
 
 	domain := extractDomain(r)
+	customIP := s.matchCustomResolver(domain)
 
-	if s.cache != nil {
+	if customIP == "" && s.cache != nil {
 		if cached := s.cache.get(r); cached != nil {
+			s.metrics.cacheHits.Add(1)
+			s.maybeStripAAAA(domain, cached)
+			countResult(cached)
+			s.programRoutes(domain, cached)
 			reply(cached)
 			if domain != "" {
 				go s.processDomainAnswers(domain, cached)
@@ -167,25 +219,26 @@ func (s *Server) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 
-	if resolverIP := s.matchCustomResolver(domain); resolverIP != "" {
+	if customIP != "" {
 		if s.config.Verbose {
-			logx.Infof("Domain %s resolved via custom %s", domain, resolverIP)
+			logx.Infof("Domain %s resolved via custom %s", domain, customIP)
 		}
 		client := &dns.Client{Net: "udp", Timeout: s.customTimeout}
-		resp, _, err := client.Exchange(r.Copy(), resolverIP)
+		resp, _, err := client.Exchange(r.Copy(), customIP)
 		if err != nil {
-			logx.Warnf("custom resolver %s error: %v", resolverIP, err)
+			logx.Warnf("custom resolver %s error: %v", customIP, err)
 			servfail()
 			return
 		}
 		resp.Id = r.Id
-		if s.cache != nil {
-			s.cache.put(resp)
-		}
+		s.maybeStripAAAA(domain, resp)
+		s.metrics.custom.Add(1)
+		countResult(resp)
+		s.programRoutes(domain, resp)
 		reply(resp)
 		if s.config.Verbose {
 			logx.Infof("DNS response to %s for %s (custom %s, %s): %s",
-				source, questions, resolverIP, formatRcode(resp), formatAnswers(resp))
+				source, questions, customIP, formatRcode(resp), formatAnswers(resp))
 		}
 		if domain != "" {
 			go s.processDomainAnswers(domain, resp)
@@ -214,9 +267,13 @@ func (s *Server) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 	msg.Id = r.Id
+	s.metrics.doh.Add(1)
+	countResult(msg)
 	if s.cache != nil {
 		s.cache.put(msg)
 	}
+	s.maybeStripAAAA(domain, msg)
+	s.programRoutes(domain, msg)
 	reply(msg)
 	if s.config.Verbose {
 		logx.Infof("DNS response to %s for %s (%s): %s",
@@ -227,7 +284,22 @@ func (s *Server) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 	}
 }
 
+func (s *Server) programRoutes(domain string, msg *dns.Msg) {
+	defer logx.Recover("programRoutes " + domain)
+	if domain == "" || s.ipManager == nil || msg == nil {
+		return
+	}
+	ips := extractIPs(msg)
+	if len(ips) == 0 {
+		return
+	}
+	if err := s.ipManager.PrepareAnswers(domain, ips); err != nil {
+		logx.Warnf("IP rule fast add error for domain %s: %v", domain, err)
+	}
+}
+
 func (s *Server) processDomainAnswers(domain string, msg *dns.Msg) {
+	defer logx.Recover("processDomainAnswers " + domain)
 	if s.ipManager == nil || msg == nil {
 		return
 	}
@@ -238,6 +310,24 @@ func (s *Server) processDomainAnswers(domain string, msg *dns.Msg) {
 	if err := s.ipManager.SyncFromAnswers(domain, ips); err != nil {
 		logx.Warnf("IP rule sync error for domain %s: %v", domain, err)
 	}
+}
+
+func (s *Server) maybeStripAAAA(domain string, msg *dns.Msg) {
+	if domain == "" || msg == nil || len(msg.Answer) == 0 {
+		return
+	}
+	f, ok := s.ipManager.(aaaaFilter)
+	if !ok || !f.DropAAAA(domain) {
+		return
+	}
+	filtered := msg.Answer[:0]
+	for _, rr := range msg.Answer {
+		if rr.Header().Rrtype == dns.TypeAAAA {
+			continue
+		}
+		filtered = append(filtered, rr)
+	}
+	msg.Answer = filtered
 }
 
 func (s *Server) matchCustomResolver(domain string) string {

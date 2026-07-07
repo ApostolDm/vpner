@@ -7,10 +7,32 @@ import (
 	"github.com/ApostolDmitry/vpner/internal/vpnkind"
 )
 
+func TestDelChainMissingIsNoop(t *testing.T) {
+	t.Parallel()
+
+	mgr := NewUnblockManager(filepath.Join(t.TempDir(), "rules.yaml"), false, false, 0, 0, nil)
+	if err := mgr.DelChain(vpnkind.OpenVPN.String(), "ovpn0"); err != nil {
+		t.Fatalf("DelChain on empty config: %v", err)
+	}
+
+	if err := mgr.AddRule(vpnkind.OpenVPN.String(), "ovpn0", "*.example.com"); err != nil {
+		t.Fatalf("AddRule: %v", err)
+	}
+	if err := mgr.DelChain(vpnkind.OpenVPN.String(), "other"); err != nil {
+		t.Fatalf("DelChain on missing chain: %v", err)
+	}
+	if err := mgr.DelChain(vpnkind.OpenVPN.String(), "ovpn0"); err != nil {
+		t.Fatalf("DelChain: %v", err)
+	}
+	if rules, err := mgr.GetRules(vpnkind.OpenVPN.String(), "ovpn0"); err == nil && len(rules) != 0 {
+		t.Fatalf("chain rules survived DelChain: %#v", rules)
+	}
+}
+
 func TestUnblockManagerReturnsCopies(t *testing.T) {
 	t.Parallel()
 
-	mgr := NewUnblockManager(filepath.Join(t.TempDir(), "rules.yaml"), false, false, 0, nil)
+	mgr := NewUnblockManager(filepath.Join(t.TempDir(), "rules.yaml"), false, false, 0, 0, nil)
 	if err := mgr.AddRule(vpnkind.OpenVPN.String(), "ovpn0", "*.example.com"); err != nil {
 		t.Fatalf("AddRule: %v", err)
 	}

@@ -42,6 +42,26 @@ message StatusResponse {
   int32 unblock_rule_count = 6;
   repeated ChainStatus chains = 7;
   repeated DohServerStatus doh_servers = 8;
+  QueryStats query_stats = 9;
+  repeated LogEvent recent_events = 10;
+  int64 ipset_entries_v4 = 11;
+  int64 ipset_entries_v6 = 12;
+}
+
+message QueryStats {
+  int64 total = 1;
+  int64 cache_hits = 2;
+  int64 custom = 3;
+  int64 doh = 4;
+  int64 servfail = 5;
+  int64 refused = 6;
+  int64 nxdomain = 7;
+}
+
+message LogEvent {
+  int64 unix_ms = 1;
+  string level = 2;
+  string message = 3;
 }
 
 message ChainStatus {

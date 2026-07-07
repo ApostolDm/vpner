@@ -111,7 +111,7 @@ func (i *IptablesManager) PrepareXrayChain(chain string, port int, ifaces []stri
 	if err != nil {
 		return ChainSpec{}, XrayRouteState{}, err
 	}
-	if err := ensureManagedIPSet(ipsetName, false); err != nil {
+	if err := ensureManagedIPSet(ipsetName, false, i.entryTimeout); err != nil {
 		return ChainSpec{}, XrayRouteState{}, err
 	}
 	if i.ipv6Enabled {
@@ -119,7 +119,7 @@ func (i *IptablesManager) PrepareXrayChain(chain string, port int, ifaces []stri
 		if err != nil {
 			return ChainSpec{}, XrayRouteState{}, err
 		}
-		if err := ensureManagedIPSet(ipsetName6, true); err != nil {
+		if err := ensureManagedIPSet(ipsetName6, true, i.entryTimeout); err != nil {
 			return ChainSpec{}, XrayRouteState{}, err
 		}
 	}
@@ -134,12 +134,12 @@ func (i *IptablesManager) PrepareXrayChain(chain string, port int, ifaces []stri
 	return spec, state, nil
 }
 
-func ensureManagedIPSet(ipsetName string, ipv6 bool) error {
+func ensureManagedIPSet(ipsetName string, ipv6 bool, entryTimeout int) error {
 	if IPSetExists(ipsetName) {
 		return nil
 	}
 
-	params := &Params{Timeout: DefaultIPSetTimeout, WithComments: true}
+	params := &Params{Timeout: entryTimeout, WithComments: true}
 	if ipv6 {
 		params.HashFamily = "inet6"
 	}
