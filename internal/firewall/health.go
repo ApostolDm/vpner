@@ -1,6 +1,8 @@
 package firewall
 
 import (
+	"bytes"
+	"fmt"
 	"os/exec"
 )
 
@@ -32,4 +34,13 @@ func (i *IptablesManager) RoutingIntact() bool {
 
 func chainExists(iptablesCmd, table, chain string) bool {
 	return exec.Command(iptablesCmd, "-t", table, "-n", "-L", chain).Run() == nil
+}
+
+func routeTablePopulated(f ipFamily, tableID int) bool {
+	args := append(f.ipFlags, "route", "show", "table", fmt.Sprintf("%d", tableID))
+	out, err := exec.Command("ip", args...).Output()
+	if err != nil {
+		return true
+	}
+	return len(bytes.TrimSpace(out)) > 0
 }

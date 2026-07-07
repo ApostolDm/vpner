@@ -106,7 +106,9 @@ func (i *IptablesManager) restoreMarkEntry(f ipFamily, routing map[string]vpnRou
 		tableID := fmt.Sprintf("%d", info.TableID)
 		if !ipRuleExists(f, mark, tableID) {
 			_ = addIPRule(f, info.Mark, info.TableID)
-			_ = addIPRoute(f, info.TableID, info.Dev)
+		}
+		if err := addIPRoute(f, info.TableID, info.Dev); err != nil && !isExistsError(err) {
+			logx.Warnf("restore route table %d dev %s: %v", info.TableID, info.Dev, err)
 		}
 	}
 

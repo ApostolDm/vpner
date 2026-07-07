@@ -392,5 +392,8 @@ func addIPRoute(f ipFamily, tableID int, iface string) error {
 
 func markAndTableFromIPSet(ipsetName string) (mark int, tableID int) {
 	id := int(checksumIPSetName(ipsetName)&0xFFF) + 100
+	if id == tproxyTableID {
+		id++
+	}
 	return id, id
 }

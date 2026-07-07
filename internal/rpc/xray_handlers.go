@@ -93,8 +93,8 @@ func (s *VpnerServer) HookRestore(ctx context.Context, _ *grpcpb.Empty) (*grpcpb
 		}
 	}
 
-	s.RestoreXrayRouting(restoreV4, restoreV6, scope.Table)
 	s.RestoreMarkRouting(scope.Table)
+	s.RestoreXrayRouting(restoreV4, restoreV6, scope.Table)
 	return successGeneric("Routing restore triggered"), nil
 }
 

@@ -78,6 +78,43 @@ func (m *Manager) LookupTracked(name string) (Interface, bool) {
 	return m.store.LookupInterface(name)
 }
 
+func (m *Manager) SystemNameResolver() func(id string) (string, error) {
+	var fetched map[string]Interface
+	var fetchErr error
+	fetchDone := false
+
+	return func(id string) (string, error) {
+		iface, ok := m.store.LookupInterface(id)
+		if !ok {
+			return "", fmt.Errorf("interface %s is not tracked", id)
+		}
+		if iface.SystemName != "" {
+			return iface.SystemName, nil
+		}
+
+		if !fetchDone {
+			fetched, fetchErr = m.FetchInterfaces()
+			fetchDone = true
+		}
+		if fetchErr != nil {
+			return "", fmt.Errorf("interface %s: router API unavailable: %w", id, fetchErr)
+		}
+		current, ok := fetched[id]
+		if !ok {
+			return "", fmt.Errorf("interface %s is not present on the router", id)
+		}
+		if current.Address == "" {
+			return "", fmt.Errorf("interface %s has no address; is the VPN connection up?", id)
+		}
+
+		name, err := findInterfaceByIP(current.Address)
+		if err != nil {
+			return "", fmt.Errorf("interface %s: %w", id, err)
+		}
+		return name, nil
+	}
+}
+
 func (m *Manager) FetchInterfaces() (map[string]Interface, error) {
 	return m.router.FetchInterfaces(context.Background())
 }

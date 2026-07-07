@@ -66,8 +66,8 @@ func (r *Runtime) Run(ctx context.Context) error {
 	if err := r.xraySvc.StartAuto(); err != nil {
 		logx.Errorf("Failed to autostart xray chains: %v", err)
 	}
-	r.serverImpl.RestoreXrayRouting(true, true, "")
 	r.serverImpl.RestoreMarkRouting("")
+	r.serverImpl.RestoreXrayRouting(true, true, "")
 
 	servers, err := r.buildGRPCServers()
 	if err != nil {
@@ -139,19 +139,33 @@ func (r *Runtime) runWatchdog(ctx context.Context) {
 
 	const baseThreshold, maxThreshold = 2, 32
 	misses, threshold := 0, baseThreshold
+	markMisses, markThreshold := 0, baseThreshold
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if r.isShuttingDown() {
+				return
+			}
+
+			if r.serverImpl.MarkRoutingHealthy() {
+				markMisses, markThreshold = 0, baseThreshold
+			} else if markMisses++; markMisses >= markThreshold {
+				logx.Warnf("routing watchdog: interface VPN routing incomplete; restoring")
+				r.serverImpl.RestoreMarkRouting("")
+				markMisses = 0
+
+				if markThreshold < maxThreshold {
+					markThreshold *= 2
+				}
+			}
+
 			if r.serverImpl.RoutingHealthy() {
 				misses, threshold = 0, baseThreshold
 				continue
 			}
 			if misses++; misses >= threshold {
-				if r.isShuttingDown() {
-					return
-				}
 				logx.Warnf("routing watchdog: managed routing missing from kernel; reconciling")
 				r.serverImpl.ReconcileRouting()
 				misses = 0

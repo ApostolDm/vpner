@@ -25,6 +25,7 @@ type InterfaceController interface {
 	AddInterface(id string) error
 	DeleteInterface(id string) error
 	LookupTracked(name string) (netif.Interface, bool)
+	SystemNameResolver() func(id string) (string, error)
 }
 
 type XrayController interface {
@@ -62,8 +63,10 @@ type RoutingController interface {
 }
 
 type MarkRoutingController interface {
-	Apply(vpnType, chain, vpnIface string) error
+	Apply(vpnType, chain string, resolveIface func() (string, error)) error
+	Sync(vpnType, chain string, resolveIface func() (string, error)) error
 	Remove(vpnType, chain string) error
+	Intact(vpnType, chain string) bool
 }
 
 type StatusInfo struct {
