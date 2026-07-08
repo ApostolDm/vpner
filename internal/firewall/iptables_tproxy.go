@@ -132,21 +132,30 @@ func (i *IptablesManager) cleanupLegacyTProxySocketRule(f ipFamily) {
 		"-p", "tcp", "-m", "socket", "-j", chainDivert)
 }
 
-func tproxySocketRuleSpec() string {
-	return fmt.Sprintf("-A %s -p tcp -m socket --transparent -j %s", chainPrerouting, chainDivert)
+func tproxySocketRuleSpec(iface string) string {
+	return fmt.Sprintf("-A %s -i %s -p tcp -m socket --transparent -j %s", chainPrerouting, iface, chainDivert)
 }
 
-func tproxySocketRuleSpecUDP() string {
-	return fmt.Sprintf("-A %s -p udp -m socket --transparent -j %s", chainPrerouting, chainDivert)
+func tproxySocketRuleSpecUDP(iface string) string {
+	return fmt.Sprintf("-A %s -i %s -p udp -m socket --transparent -j %s", chainPrerouting, iface, chainDivert)
 }
 
-func ensureUDPSocketDivert(f ipFamily, existing map[string]bool) {
-	if existing[tproxySocketRuleSpecUDP()] {
-		return
-	}
-	if err := run(f.iptablesCmd, "-t", tableMangle, "-A", chainPrerouting,
-		"-p", "udp", "-m", "socket", "--transparent", "-j", chainDivert); err != nil {
-		logx.Warnf("udp socket divert rule unavailable (established UDP flows may drop on ipset expiry): %v", err)
+func cleanupGlobalSocketDivertRules(f ipFamily) {
+	tryRun(f.iptablesCmd, "-t", tableMangle, "-D", chainPrerouting,
+		"-p", "tcp", "-m", "socket", "--transparent", "-j", chainDivert)
+	tryRun(f.iptablesCmd, "-t", tableMangle, "-D", chainPrerouting,
+		"-p", "udp", "-m", "socket", "--transparent", "-j", chainDivert)
+}
+
+func ensureUDPSocketDivert(f ipFamily, existing map[string]bool, ifaces []string) {
+	for _, iface := range ifaces {
+		if existing[tproxySocketRuleSpecUDP(iface)] {
+			continue
+		}
+		if err := run(f.iptablesCmd, "-t", tableMangle, "-A", chainPrerouting,
+			"-i", iface, "-p", "udp", "-m", "socket", "--transparent", "-j", chainDivert); err != nil {
+			logx.Warnf("udp socket divert rule unavailable on %s (established UDP flows may drop on ipset expiry): %v", iface, err)
+		}
 	}
 }
 
@@ -200,14 +209,34 @@ func (i *IptablesManager) cleanupTProxyIPRule(f ipFamily) {
 
 func (i *IptablesManager) cleanupTProxyInfraForFamily(f ipFamily) {
 	i.cleanupMangleInputBypass(f)
-	tryRun(f.iptablesCmd, "-t", tableMangle, "-D", chainPrerouting,
-		"-p", "tcp", "-m", "socket", "--transparent", "-j", chainDivert)
-	tryRun(f.iptablesCmd, "-t", tableMangle, "-D", chainPrerouting,
-		"-p", "udp", "-m", "socket", "--transparent", "-j", chainDivert)
+	cleanupGlobalSocketDivertRules(f)
+	for _, iface := range i.collectRoutedIfaces() {
+		tryRun(f.iptablesCmd, "-t", tableMangle, "-D", chainPrerouting,
+			"-i", iface, "-p", "tcp", "-m", "socket", "--transparent", "-j", chainDivert)
+		tryRun(f.iptablesCmd, "-t", tableMangle, "-D", chainPrerouting,
+			"-i", iface, "-p", "udp", "-m", "socket", "--transparent", "-j", chainDivert)
+	}
 	i.cleanupLegacyTProxySocketRule(f)
 	tryRun(f.iptablesCmd, "-t", tableMangle, "-F", chainDivert)
 	tryRun(f.iptablesCmd, "-t", tableMangle, "-X", chainDivert)
 	i.cleanupTProxyIPRule(f)
+}
+
+func (i *IptablesManager) collectRoutedIfaces() []string {
+	seen := make(map[string]struct{})
+	var out []string
+	for _, routing := range []map[string]vpnRoutingInfo{i.routingV4, i.routingV6} {
+		for _, info := range routing {
+			for _, iface := range info.Ifaces {
+				if _, ok := seen[iface]; ok {
+					continue
+				}
+				seen[iface] = struct{}{}
+				out = append(out, iface)
+			}
+		}
+	}
+	return out
 }
 
 func (i *IptablesManager) TProxyEnabled() bool {

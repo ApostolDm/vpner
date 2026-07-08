@@ -231,6 +231,7 @@ func (i *IptablesManager) buildTProxyBatch(f ipFamily, routing map[string]vpnRou
 	i.ensureTProxyLocalRouting(f)
 
 	i.cleanupLegacyTProxySocketRule(f)
+	cleanupGlobalSocketDivertRules(f)
 	if err := i.ensureMangleInputBypass(f); err != nil {
 		return fmt.Errorf("mangle INPUT bypass: %w", err)
 	}
@@ -246,9 +247,12 @@ func (i *IptablesManager) buildTProxyBatch(f ipFamily, routing map[string]vpnRou
 	b.Add(fmt.Sprintf("-A %s -j MARK --set-mark %s", chainDivert, tproxyMark))
 	b.Add(fmt.Sprintf("-A %s -j ACCEPT", chainDivert))
 
-	socketRule := tproxySocketRuleSpec()
-	if !existing[socketRule] {
-		b.Add(socketRule)
+	lanIfaces := uniqueSpecIfaces(specs)
+	for _, iface := range lanIfaces {
+		socketRule := tproxySocketRuleSpec(iface)
+		if !existing[socketRule] {
+			b.Add(socketRule)
+		}
 	}
 
 	buildXrayChains(b, existing, specs,
@@ -264,9 +268,24 @@ func (i *IptablesManager) buildTProxyBatch(f ipFamily, routing map[string]vpnRou
 	if err := b.Commit(); err != nil {
 		return err
 	}
-	ensureUDPSocketDivert(f, existing)
+	ensureUDPSocketDivert(f, existing, lanIfaces)
 	updateRoutingMap(routing, specs, tableMangle, f.iptablesCmd)
 	return nil
+}
+
+func uniqueSpecIfaces(specs []ChainSpec) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	for _, spec := range specs {
+		for _, iface := range spec.Ifaces {
+			if _, ok := seen[iface]; ok {
+				continue
+			}
+			seen[iface] = struct{}{}
+			out = append(out, iface)
+		}
+	}
+	return out
 }
 
 func (i *IptablesManager) buildRedirectBatch(f ipFamily, routing map[string]vpnRoutingInfo, specs []ChainSpec) error {
