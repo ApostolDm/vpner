@@ -7,21 +7,22 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  packages:
+    name: package ${{ matrix.pkgarch }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    env:
-      ARCH_LIST: |
-        arm64:aarch64-3.10
-        arm64:aarch64-3.10_kn
-        mipsle:mipsel-3.4
-        mips:mips-3.4
-      GOOS: linux
-      CLI_TARGETS: "linux/amd64 linux/arm64 darwin/arm64 windows/amd64"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goarch: arm64, pkgarch: aarch64-3.10 }
+          - { goarch: arm64, pkgarch: aarch64-3.10_kn }
+          - { goarch: mipsle, pkgarch: mipsel-3.4 }
+          - { goarch: mips, pkgarch: mips-3.4 }
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -29,55 +30,89 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Build opkg packages
-        run: ARCH_LIST="$ARCH_LIST" GOOS=$GOOS ./make.sh
-
-      - name: Build vpnerctl binaries
-        run: |
-          mkdir -p dist/vpnerctl
-          for target in $CLI_TARGETS; do
-            os=${target%/*}
-            arch=${target#*/}
-            out="dist/vpnerctl/vpnerctl-${os}-${arch}"
-            if [ "$os" = "windows" ]; then
-              out="${out}.exe"
-            fi
-            GOOS=$os GOARCH=$arch go build -ldflags="-s -w" -o "$out" ./cmd/vpnerctl
-          done
-
-      - name: Build vpnerhookcli binaries
-        run: |
-          mkdir -p dist/vpnerhookcli
-          while IFS= read -r spec; do
-            [ -z "$spec" ] && continue
-            goarch=${spec%%:*}
-            pkgarch=${spec##*:}
-            if [ "$spec" = "$goarch" ]; then
-              pkgarch=$goarch
-            fi
-            out="dist/vpnerhookcli/vpnerhookcli-${pkgarch}"
-            GOOS=linux GOARCH=$goarch go build -ldflags="-s -w" -o "$out" ./cmd/vpnerhookcli
-          done <<< "$ARCH_LIST"
+      - name: Build opkg package
+        run: ARCH_LIST="${{ matrix.goarch }}:${{ matrix.pkgarch }}" GOOS=linux ./make.sh
 
       - name: Collect artifacts
         run: |
-          mkdir -p dist/ipk
-          cp build/*.ipk dist/ipk/
+          mkdir -p out
+          cp build/*.ipk out/
+          GOOS=linux GOARCH=${{ matrix.goarch }} go build -ldflags="-s -w" \
+            -o "out/vpnerhookcli-${{ matrix.pkgarch }}" ./cmd/vpnerhookcli
 
-      - name: Upload build artifacts
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: pkg-${{ matrix.pkgarch }}
+          path: out/
+          if-no-files-found: error
+
+  cli:
+    name: cli ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build vpnerctl
+        run: |
+          mkdir -p out
+          bin="out/vpnerctl-${{ matrix.goos }}-${{ matrix.goarch }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            bin="${bin}.exe"
+          fi
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -ldflags="-s -w" -o "$bin" ./cmd/vpnerctl
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: out/
+          if-no-files-found: error
+
+  release:
+    name: collect and publish
+    needs: [packages, cli]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List artifacts
+        run: find dist -type f | sort
+
+      - name: Upload combined artifact
         uses: actions/upload-artifact@v4
         with:
           name: vpner-build
-          path: |
-            dist/ipk/*.ipk
-            dist/vpnerctl/*
-            dist/vpnerhookcli/*
+          path: dist/
 
       - name: Publish release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            build/*.ipk
-            dist/vpnerctl/*
-            dist/vpnerhookcli/*
+            dist/*.ipk
+            dist/vpnerctl-*
+            dist/vpnerhookcli-*
