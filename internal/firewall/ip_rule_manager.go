@@ -80,19 +80,30 @@ func (m *IpRuleManager) PrepareAnswers(domain string, ips []net.IP) error {
 	if !ok {
 		return nil
 	}
-	return m.fastAddFamilies(vpnType, chainName, rule, domain, ips)
+	return m.fastAddFamilies(vpnType, chainName, rule, domain, ips, false)
 }
 
-func (m *IpRuleManager) fastAddFamilies(vpnType, chainName, rule, domain string, ips []net.IP) error {
+func (m *IpRuleManager) ResyncAnswers(domain string, ips []net.IP) error {
+	if m == nil || m.matcher == nil || len(ips) == 0 {
+		return nil
+	}
+	vpnType, chainName, rule, ok := m.matcher.MatchDomain(domain)
+	if !ok {
+		return nil
+	}
+	return m.fastAddFamilies(vpnType, chainName, rule, domain, ips, true)
+}
+
+func (m *IpRuleManager) fastAddFamilies(vpnType, chainName, rule, domain string, ips []net.IP, force bool) error {
 	var errs []error
 	if v4 := filterIPs(ips, false); len(v4) > 0 {
-		if err := m.fastAdd(vpnType, chainName, rule, domain, v4, false); err != nil {
+		if err := m.fastAdd(vpnType, chainName, rule, domain, v4, false, force); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	if m.ipv6Enabled {
 		if v6 := filterIPs(ips, true); len(v6) > 0 {
-			if err := m.fastAdd(vpnType, chainName, rule, domain, v6, true); err != nil {
+			if err := m.fastAdd(vpnType, chainName, rule, domain, v6, true, force); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -100,7 +111,7 @@ func (m *IpRuleManager) fastAddFamilies(vpnType, chainName, rule, domain string,
 	return errors.Join(errs...)
 }
 
-func (m *IpRuleManager) fastAdd(vpnType, chainName, rule, domain string, resolved []string, ipv6 bool) error {
+func (m *IpRuleManager) fastAdd(vpnType, chainName, rule, domain string, resolved []string, ipv6, force bool) error {
 	ipsetName, family, err := ipsetNameForFamily(vpnType, chainName, ipv6)
 	if err != nil {
 		return fmt.Errorf("failed to get ipset name for %q: %w", domain, err)
@@ -113,14 +124,14 @@ func (m *IpRuleManager) fastAdd(vpnType, chainName, rule, domain string, resolve
 	throttleKey := refreshKey(ipsetName, comment)
 	fingerprint := ipsFingerprint(resolved)
 	window := m.refreshWindow()
-	if m.registry.RecentlyRefreshed(throttleKey, fingerprint, window) {
+	if !force && m.registry.RecentlyRefreshed(throttleKey, fingerprint, window) {
 		return nil
 	}
 
 	unlock := m.registry.LockSet(ipsetName)
 	defer unlock()
 
-	set, err := m.registry.ObtainOrCreateFamily(ipsetName, family)
+	set, err := m.obtainSet(ipsetName, family, force)
 	if err != nil {
 		return fmt.Errorf("failed to prepare ipset %q: %w", ipsetName, err)
 	}
@@ -134,6 +145,13 @@ func (m *IpRuleManager) fastAdd(vpnType, chainName, rule, domain string, resolve
 	}
 	m.registry.MarkRefreshed(throttleKey, fingerprint, window)
 	return nil
+}
+
+func (m *IpRuleManager) obtainSet(ipsetName, family string, ensureKernel bool) (*IPSet, error) {
+	if ensureKernel {
+		return m.registry.EnsureKernelFamily(ipsetName, family)
+	}
+	return m.registry.ObtainOrCreateFamily(ipsetName, family)
 }
 
 func (m *IpRuleManager) filterStaticEntries(ipsetName string, resolved []string) []string {
@@ -185,7 +203,7 @@ func (m *IpRuleManager) SyncFromAnswers(domain string, ips []net.IP) error {
 	}
 
 	if m.entryTimeout > 0 {
-		errs := []error{m.fastAddFamilies(vpnType, chainName, rule, domain, ips)}
+		errs := []error{m.fastAddFamilies(vpnType, chainName, rule, domain, ips, false)}
 		errs = append(errs, m.sweepLegacyEntries(vpnType, chainName, false))
 		if m.ipv6Enabled {
 			errs = append(errs, m.sweepLegacyEntries(vpnType, chainName, true))

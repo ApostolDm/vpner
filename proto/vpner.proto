@@ -31,6 +31,9 @@ service VpnerManager {
 
   // Daemon-wide status snapshot.
   rpc Status(Empty) returns (StatusResponse);
+
+  // Re-populate ipset entries for all unblock rules (static IPs + concrete domains).
+  rpc SyncRules(Empty) returns (GenericResponse);
 }
 
 message StatusResponse {

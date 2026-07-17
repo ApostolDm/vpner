@@ -103,7 +103,7 @@ func NewServer(cfg conf.ServerConfig, ipManager IPSyncer, resolver *Upstream) *S
 				continue
 			}
 			s.customRules = append(s.customRules, compiledResolverRule{
-				Upstream: resolverAddr,
+				Upstream: normalizeResolverAddr(resolverAddr),
 				Pattern:  raw,
 			})
 		}
@@ -328,6 +328,17 @@ func (s *Server) maybeStripAAAA(domain string, msg *dns.Msg) {
 		filtered = append(filtered, rr)
 	}
 	msg.Answer = filtered
+}
+
+func normalizeResolverAddr(addr string) string {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return addr
+	}
+	if _, _, err := net.SplitHostPort(addr); err != nil {
+		return net.JoinHostPort(addr, "53")
+	}
+	return addr
 }
 
 func (s *Server) matchCustomResolver(domain string) string {

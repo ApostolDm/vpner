@@ -36,6 +36,7 @@ const (
 	VpnerManager_XraySetAutorun_FullMethodName = "/vpner.VpnerManager/XraySetAutorun"
 	VpnerManager_HookRestore_FullMethodName    = "/vpner.VpnerManager/HookRestore"
 	VpnerManager_Status_FullMethodName         = "/vpner.VpnerManager/Status"
+	VpnerManager_SyncRules_FullMethodName      = "/vpner.VpnerManager/SyncRules"
 )
 
 // VpnerManagerClient is the client API for VpnerManager service.
@@ -64,6 +65,8 @@ type VpnerManagerClient interface {
 	HookRestore(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*GenericResponse, error)
 	// Daemon-wide status snapshot.
 	Status(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*StatusResponse, error)
+	// Re-populate ipset entries for all unblock rules (static IPs + concrete domains).
+	SyncRules(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*GenericResponse, error)
 }
 
 type vpnerManagerClient struct {
@@ -244,6 +247,16 @@ func (c *vpnerManagerClient) Status(ctx context.Context, in *Empty, opts ...grpc
 	return out, nil
 }
 
+func (c *vpnerManagerClient) SyncRules(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*GenericResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GenericResponse)
+	err := c.cc.Invoke(ctx, VpnerManager_SyncRules_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // VpnerManagerServer is the server API for VpnerManager service.
 // All implementations must embed UnimplementedVpnerManagerServer
 // for forward compatibility.
@@ -270,6 +283,8 @@ type VpnerManagerServer interface {
 	HookRestore(context.Context, *Empty) (*GenericResponse, error)
 	// Daemon-wide status snapshot.
 	Status(context.Context, *Empty) (*StatusResponse, error)
+	// Re-populate ipset entries for all unblock rules (static IPs + concrete domains).
+	SyncRules(context.Context, *Empty) (*GenericResponse, error)
 	mustEmbedUnimplementedVpnerManagerServer()
 }
 
@@ -330,6 +345,9 @@ func (UnimplementedVpnerManagerServer) HookRestore(context.Context, *Empty) (*Ge
 }
 func (UnimplementedVpnerManagerServer) Status(context.Context, *Empty) (*StatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Status not implemented")
+}
+func (UnimplementedVpnerManagerServer) SyncRules(context.Context, *Empty) (*GenericResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SyncRules not implemented")
 }
 func (UnimplementedVpnerManagerServer) mustEmbedUnimplementedVpnerManagerServer() {}
 func (UnimplementedVpnerManagerServer) testEmbeddedByValue()                      {}
@@ -658,6 +676,24 @@ func _VpnerManager_Status_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _VpnerManager_SyncRules_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VpnerManagerServer).SyncRules(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VpnerManager_SyncRules_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VpnerManagerServer).SyncRules(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // VpnerManager_ServiceDesc is the grpc.ServiceDesc for VpnerManager service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -732,6 +768,10 @@ var VpnerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Status",
 			Handler:    _VpnerManager_Status_Handler,
+		},
+		{
+			MethodName: "SyncRules",
+			Handler:    _VpnerManager_SyncRules_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

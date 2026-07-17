@@ -76,6 +76,21 @@ func (r *IPSetRegistry) ObtainOrCreateFamily(name, family string) (*IPSet, error
 	return set, nil
 }
 
+func (r *IPSetRegistry) EnsureKernelFamily(name, family string) (*IPSet, error) {
+	set, err := r.ObtainOrCreateFamily(name, family)
+	if err != nil {
+		return nil, err
+	}
+	if IPSetExists(name) {
+		return set, nil
+	}
+
+	r.mu.Lock()
+	delete(r.sets, name)
+	r.mu.Unlock()
+	return r.ObtainOrCreateFamily(name, family)
+}
+
 func (r *IPSetRegistry) IsLegacySwept(name string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()

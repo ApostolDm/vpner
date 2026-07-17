@@ -78,6 +78,7 @@ type NetworkConfig struct {
 	IPSetStaleQueries int      `yaml:"ipset-stale-queries"`
 	IPSetEntryTimeout int      `yaml:"ipset-entry-timeout"`
 	ReconcileInterval int      `yaml:"reconcile-interval"`
+	LocalExceptions   []string `yaml:"local-exceptions"`
 }
 
 type FullConfig struct {

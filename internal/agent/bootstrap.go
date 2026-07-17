@@ -42,7 +42,7 @@ func buildRuntimeGraph(cfg conf.FullConfig) (*runtimeGraph, error) {
 		return nil, fmt.Errorf("failed to init xray manager: %w", err)
 	}
 
-	iptables := firewall.NewIptablesManager(cfg.Network.EnableIPv6, tproxyEnabled, cfg.Network.IPSetEntryTimeout)
+	iptables := firewall.NewIptablesManager(cfg.Network.EnableIPv6, tproxyEnabled, cfg.Network.IPSetEntryTimeout, cfg.Network.LocalExceptions)
 	iptables.CleanupStaleState()
 	xrayRouter := routing.NewXrayRouter(iptables, cfg.Network.LANInterfaces)
 	markRouter := routing.NewMarkRouter(iptables, cfg.Network.LANInterfaces)

@@ -42,3 +42,29 @@ network:
   # ones age out automatically. 0 = default (3600), minimum 60,
   # -1 = legacy mode (reactive deletion driven by ipset-stale-queries).
   ipset-entry-timeout: 3600
+  # Destination ranges that are NEVER routed into a VPN/proxy (they get an
+  # early RETURN in the mangle/nat chains). By default this is the full set of
+  # private/link-local/multicast ranges below, which also blocks routing any
+  # RFC1918 address you add as a rule (e.g. a host reachable only through the
+  # tunnel). To route a specific local subnet through the VPN, override this
+  # list and drop the range that covers it (keep your own LAN subnet here).
+  # Entries are split by family automatically; overriding is per-family, so if
+  # you list only IPv4 entries the IPv6 defaults stay in effect (and vice versa).
+  # The lists below are the built-in defaults; uncomment and edit to override.
+  # local-exceptions:
+  #   # IPv4 defaults (replace 192.168.0.0/16 with your real LAN subnet, e.g.
+  #   # 192.168.1.0/24, so a host like 192.168.14.88 can route through the VPN):
+  #   - "0.0.0.0/8"
+  #   - "127.0.0.0/8"
+  #   - "10.0.0.0/8"
+  #   - "172.16.0.0/12"
+  #   - "192.168.0.0/16"
+  #   - "169.254.0.0/16"
+  #   - "224.0.0.0/4"
+  #   - "240.0.0.0/4"
+  #   # IPv6 defaults (only relevant when enable-ipv6: true):
+  #   - "::1/128"
+  #   - "fe80::/10"
+  #   - "fc00::/7"
+  #   - "ff00::/8"
+  #   - "2001:db8::/32"

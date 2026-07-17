@@ -2,6 +2,7 @@ package firewall
 
 import (
 	"fmt"
+	"net"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -44,7 +45,6 @@ type ipFamily struct {
 	iptablesCmd     string
 	iptablesSaveCmd string
 	ipFlags         []string
-	localExceptions []string
 }
 
 var (
@@ -52,13 +52,11 @@ var (
 		iptablesCmd:     "iptables",
 		iptablesSaveCmd: "iptables-save",
 		ipFlags:         nil,
-		localExceptions: localExceptionsV4[:],
 	}
 	familyV6 = ipFamily{
 		iptablesCmd:     "ip6tables",
 		iptablesSaveCmd: "ip6tables-save",
 		ipFlags:         []string{"-6"},
-		localExceptions: localExceptionsIPv6[:],
 	}
 )
 
@@ -70,6 +68,8 @@ type IptablesManager struct {
 	tproxyEnabled bool
 	ipInfraReady  bool
 	entryTimeout  int
+	exceptionsV4  []string
+	exceptionsV6  []string
 }
 
 type ChainSpec struct {
@@ -134,17 +134,73 @@ func commandExists(cmd string) bool {
 	return err == nil
 }
 
-func NewIptablesManager(ipv6Enabled, tproxyEnabled bool, ipsetEntryTimeout int) *IptablesManager {
+func NewIptablesManager(ipv6Enabled, tproxyEnabled bool, ipsetEntryTimeout int, localExceptions []string) *IptablesManager {
 	if ipsetEntryTimeout < 0 {
 		ipsetEntryTimeout = 0
 	}
+	v4, v6 := resolveLocalExceptions(localExceptions)
 	return &IptablesManager{
 		routingV4:     make(map[string]vpnRoutingInfo),
 		routingV6:     make(map[string]vpnRoutingInfo),
 		ipv6Enabled:   ipv6Enabled,
 		tproxyEnabled: tproxyEnabled,
 		entryTimeout:  ipsetEntryTimeout,
+		exceptionsV4:  v4,
+		exceptionsV6:  v6,
 	}
+}
+
+func (i *IptablesManager) exceptionsFor(f ipFamily) []string {
+	if f.iptablesCmd == familyV6.iptablesCmd {
+		return i.exceptionsV6
+	}
+	return i.exceptionsV4
+}
+
+func resolveLocalExceptions(configList []string) (v4, v6 []string) {
+	v4 = localExceptionsV4[:]
+	v6 = localExceptionsIPv6[:]
+
+	var userV4, userV6 []string
+	for _, raw := range configList {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		fam, ok := exceptionFamily(raw)
+		if !ok {
+			logx.Warnf("ignoring invalid local-exception %q (not an IP or CIDR)", raw)
+			continue
+		}
+		if fam == 6 {
+			userV6 = append(userV6, raw)
+		} else {
+			userV4 = append(userV4, raw)
+		}
+	}
+	if len(userV4) > 0 {
+		v4 = userV4
+	}
+	if len(userV6) > 0 {
+		v6 = userV6
+	}
+	return v4, v6
+}
+
+func exceptionFamily(s string) (int, bool) {
+	if ip := net.ParseIP(s); ip != nil {
+		if ip.To4() != nil {
+			return 4, true
+		}
+		return 6, true
+	}
+	if ip, _, err := net.ParseCIDR(s); err == nil {
+		if ip.To4() != nil {
+			return 4, true
+		}
+		return 6, true
+	}
+	return 0, false
 }
 
 func (i *IptablesManager) CleanupStaleState() {

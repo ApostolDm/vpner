@@ -18,15 +18,29 @@ func (s *VpnerServer) InterfaceList(ctx context.Context, _ *grpcpb.Empty) (*grpc
 	if len(interfaces.Interfaces) == 0 {
 		return nil, status.Errorf(codes.Internal, "interfaces do not exist")
 	}
+
+	live, liveErr := s.ifManager.FetchInterfaces()
+
 	var result []*grpcpb.InterfaceInfo
 	for id, iface := range interfaces.Interfaces {
-		result = append(result, &grpcpb.InterfaceInfo{
+		info := &grpcpb.InterfaceInfo{
 			Id:          id,
 			Type:        iface.Type,
 			Description: iface.Description,
 			Status:      returnIfStatus(iface.State),
-		})
+		}
+		if liveErr == nil {
+			if cur, ok := live[id]; ok {
+				info.Status = returnIfStatus(cur.State)
+			} else {
+				info.Status = grpcpb.InterfaceInfo_DOWN
+			}
+		}
+		result = append(result, info)
 	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Id < result[j].Id
+	})
 	return &grpcpb.InterfaceListResponse{Interfaces: result}, nil
 }
 

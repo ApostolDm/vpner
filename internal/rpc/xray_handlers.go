@@ -80,6 +80,12 @@ func (s *VpnerServer) XraySetAutorun(_ context.Context, req *grpcpb.XrayAutoRunR
 
 func (s *VpnerServer) HookRestore(ctx context.Context, _ *grpcpb.Empty) (*grpcpb.GenericResponse, error) {
 	scope := hookscope.FromIncomingContext(ctx)
+
+	if scope.Interface != "" {
+		s.handleInterfaceEvent(scope.Interface, scope.SystemName, scope.Event)
+		return successGeneric("Interface event handled"), nil
+	}
+
 	restoreV4 := scope.RestoreIPv4()
 	restoreV6 := scope.RestoreIPv6()
 

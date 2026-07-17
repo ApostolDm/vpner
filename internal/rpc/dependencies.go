@@ -1,8 +1,10 @@
 package rpc
 
 import (
+	"context"
 	"time"
 
+	dnssvc "github.com/ApostolDmitry/vpner/internal/dnssvc"
 	netif "github.com/ApostolDmitry/vpner/internal/netif"
 	proxy "github.com/ApostolDmitry/vpner/internal/proxy"
 	proxysvc "github.com/ApostolDmitry/vpner/internal/proxysvc"
@@ -17,6 +19,7 @@ type DNSController interface {
 	IsRunning() bool
 	UpstreamStats() []resolver.ServerStat
 	QueryStats() resolver.QueryStats
+	ResyncRules(ctx context.Context) (dnssvc.SyncReport, error)
 }
 
 type InterfaceController interface {

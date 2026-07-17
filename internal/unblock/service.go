@@ -126,6 +126,13 @@ func (s *Service) DeleteRule(pattern string) (string, string, error) {
 	return vpnType, chainName, nil
 }
 
+func (s *Service) ResyncStatic() (int, error) {
+	if s == nil || s.manager == nil {
+		return 0, fmt.Errorf("unblock service is not initialized")
+	}
+	return s.manager.ResyncStaticEntries()
+}
+
 func (s *Service) RuleCount(vpnType, chainName string) int {
 	rules, err := s.manager.GetRules(vpnType, chainName)
 	if err != nil {

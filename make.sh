@@ -131,6 +131,16 @@ exit 0
 HOOK
 }
 
+render_iface_hook() {
+  cat <<'HOOK'
+#!/bin/sh
+[ -n "${id}" ] || exit 0
+[ "${connected}" = "yes" ] || exit 0
+__INSTALL_PREFIX__/etc/vpner/vpnerhookcli --unix /tmp/vpner.sock --iface "${id}" --sysname "${system_name}" --event up >/dev/null 2>&1 &
+exit 0
+HOOK
+}
+
 render_init_script() {
   cat <<'INIT'
 #!/bin/sh
@@ -250,9 +260,12 @@ build_arch() {
   local conf_dir="$data_dir$INSTALL_PREFIX/etc/vpner"
   local init_dir="$data_dir$INSTALL_PREFIX/etc/init.d"
   local ndm_dir="$data_dir$INSTALL_PREFIX/etc/ndm/netfilter.d"
+  local ifstate_dir="$data_dir$INSTALL_PREFIX/etc/ndm/ifstatechanged.d"
+  local ifip_dir="$data_dir$INSTALL_PREFIX/etc/ndm/ifipchanged.d"
+  local ifip6_dir="$data_dir$INSTALL_PREFIX/etc/ndm/ifip6changed.d"
 
   cleanup_dir "$work"
-  mkdir -p "$bin_dir" "$data_dir" "$control_dir" "$conf_dir" "$init_dir" "$ndm_dir" "$work/opkg"
+  mkdir -p "$bin_dir" "$data_dir" "$control_dir" "$conf_dir" "$init_dir" "$ndm_dir" "$ifstate_dir" "$ifip_dir" "$ifip6_dir" "$work/opkg"
 
   local gomodcache gocache gopath
   gomodcache=$(mktemp -d)
@@ -308,6 +321,21 @@ build_arch() {
   apply_placeholders "$hook_tmp"
   chmod 755 "$hook_tmp"
 
+  local ifstate_tmp="$ifstate_dir/$HOOK_SCRIPT_NAME"
+  render_iface_hook > "$ifstate_tmp"
+  apply_placeholders "$ifstate_tmp"
+  chmod 755 "$ifstate_tmp"
+
+  local ifip_tmp="$ifip_dir/$HOOK_SCRIPT_NAME"
+  render_iface_hook > "$ifip_tmp"
+  apply_placeholders "$ifip_tmp"
+  chmod 755 "$ifip_tmp"
+
+  local ifip6_tmp="$ifip6_dir/$HOOK_SCRIPT_NAME"
+  render_iface_hook > "$ifip6_tmp"
+  apply_placeholders "$ifip6_tmp"
+  chmod 755 "$ifip6_tmp"
+
   render_postinst > "$control_dir/postinst"
   apply_placeholders "$control_dir/postinst"
   chmod 755 "$control_dir/postinst"
@@ -355,9 +383,12 @@ build_universal() {
   local bin_dir="$conf_dir/bins"
   local init_dir="$data_dir$INSTALL_PREFIX/etc/init.d"
   local ndm_dir="$data_dir$INSTALL_PREFIX/etc/ndm/netfilter.d"
+  local ifstate_dir="$data_dir$INSTALL_PREFIX/etc/ndm/ifstatechanged.d"
+  local ifip_dir="$data_dir$INSTALL_PREFIX/etc/ndm/ifipchanged.d"
+  local ifip6_dir="$data_dir$INSTALL_PREFIX/etc/ndm/ifip6changed.d"
 
   cleanup_dir "$work"
-  mkdir -p "$bin_dir" "$data_dir" "$control_dir" "$conf_dir" "$init_dir" "$ndm_dir" "$work/opkg"
+  mkdir -p "$bin_dir" "$data_dir" "$control_dir" "$conf_dir" "$init_dir" "$ndm_dir" "$ifstate_dir" "$ifip_dir" "$ifip6_dir" "$work/opkg"
 
   for spec in $ARCH_LIST; do
     local goarch=${spec%%:*}
@@ -383,6 +414,21 @@ build_universal() {
   render_ndm_hook > "$hook_tmp"
   apply_placeholders "$hook_tmp"
   chmod 755 "$hook_tmp"
+
+  local ifstate_tmp="$ifstate_dir/$HOOK_SCRIPT_NAME"
+  render_iface_hook > "$ifstate_tmp"
+  apply_placeholders "$ifstate_tmp"
+  chmod 755 "$ifstate_tmp"
+
+  local ifip_tmp="$ifip_dir/$HOOK_SCRIPT_NAME"
+  render_iface_hook > "$ifip_tmp"
+  apply_placeholders "$ifip_tmp"
+  chmod 755 "$ifip_tmp"
+
+  local ifip6_tmp="$ifip6_dir/$HOOK_SCRIPT_NAME"
+  render_iface_hook > "$ifip6_tmp"
+  apply_placeholders "$ifip6_tmp"
+  chmod 755 "$ifip6_tmp"
 
   render_postinst > "$control_dir/postinst"
   apply_placeholders "$control_dir/postinst"

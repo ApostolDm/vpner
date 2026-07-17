@@ -95,7 +95,7 @@ func (i *IptablesManager) restoreMarkEntry(f ipFamily, routing map[string]vpnRou
 
 	if info.Mark != 0 {
 		for _, iface := range info.Ifaces {
-			if err := addMarkRules(f, info.ChainName, ipsetName, info.Mark, iface); err != nil {
+			if err := addMarkRules(f, info.ChainName, ipsetName, info.Mark, iface, i.exceptionsFor(f)); err != nil {
 				logx.Errorf("restore addMarkRules %s: %v", info.ChainName, err)
 			}
 		}

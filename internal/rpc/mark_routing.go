@@ -1,8 +1,11 @@
 package rpc
 
 import (
+	"errors"
+
 	"github.com/ApostolDmitry/vpner/internal/hookscope"
 	"github.com/ApostolDmitry/vpner/internal/logx"
+	netif "github.com/ApostolDmitry/vpner/internal/netif"
 	unblock "github.com/ApostolDmitry/vpner/internal/unblock"
 	"github.com/ApostolDmitry/vpner/internal/vpnkind"
 )
@@ -56,6 +59,40 @@ func (s *VpnerServer) dropMarkRoutingIfUnused(vpnType, chainName string) error {
 	return s.markRouter.Remove(vpnType, chainName)
 }
 
+func (s *VpnerServer) handleInterfaceEvent(id, sysname, event string) {
+	if s.markRouter == nil || id == "" {
+		return
+	}
+	if event == hookscope.EventDown {
+		logx.Infof("interface %s reported down; keeping routing until it returns", id)
+		return
+	}
+
+	base := s.ifManager.SystemNameResolver()
+	resolve := func(chain string) (string, error) {
+		name, err := base(chain)
+		if err != nil && sysname != "" {
+			return sysname, nil
+		}
+		return name, err
+	}
+
+	for _, group := range s.markRoutedGroups() {
+		if group.ChainName != id {
+			continue
+		}
+		if err := s.syncMarkRouting(group.TypeName, group.ChainName, resolve); err != nil {
+			if errors.Is(err, netif.ErrInterfaceDown) {
+				logx.Debugf("interface %s up event but no address yet: %v", id, err)
+			} else {
+				logx.Warnf("interface %s up: restore routing: %v", id, err)
+			}
+			continue
+		}
+		logx.Infof("interface %s up: routing restored", id)
+	}
+}
+
 func (s *VpnerServer) RestoreMarkRouting(table string) {
 	if s.markRouter == nil {
 		return
@@ -67,7 +104,11 @@ func (s *VpnerServer) RestoreMarkRouting(table string) {
 	resolve := s.ifManager.SystemNameResolver()
 	for _, group := range s.markRoutedGroups() {
 		if err := s.syncMarkRouting(group.TypeName, group.ChainName, resolve); err != nil {
-			logx.Warnf("restore %s routing for %s: %v", group.TypeName, group.ChainName, err)
+			if errors.Is(err, netif.ErrInterfaceDown) {
+				logx.Debugf("skip %s routing for %s: %v", group.TypeName, group.ChainName, err)
+			} else {
+				logx.Warnf("restore %s routing for %s: %v", group.TypeName, group.ChainName, err)
+			}
 		}
 	}
 }

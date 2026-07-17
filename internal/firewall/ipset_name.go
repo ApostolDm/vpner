@@ -30,8 +30,8 @@ func IpsetName6FromBase(base string) (string, error) {
 }
 
 func validateIpsetName(name string) (string, error) {
-	if len(name) > 32 {
-		return "", fmt.Errorf("ipset name is too long: %s", name)
+	if len(name) > maxIpsetNameLen {
+		return "", fmt.Errorf("ipset name is too long (%d > %d): %s", len(name), maxIpsetNameLen, name)
 	}
 	return name, nil
 }

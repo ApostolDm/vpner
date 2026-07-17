@@ -2,12 +2,15 @@ package netif
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/ApostolDmitry/vpner/internal/logx"
 )
 
 const defaultOutputFile = "/opt/etc/vpner/vpn_interfaces.yaml"
+
+var ErrInterfaceDown = errors.New("interface has no address; is the VPN connection up?")
 
 type Interface struct {
 	Type        string `json:"type" yaml:"type"`
@@ -104,7 +107,7 @@ func (m *Manager) SystemNameResolver() func(id string) (string, error) {
 			return "", fmt.Errorf("interface %s is not present on the router", id)
 		}
 		if current.Address == "" {
-			return "", fmt.Errorf("interface %s has no address; is the VPN connection up?", id)
+			return "", fmt.Errorf("interface %s: %w", id, ErrInterfaceDown)
 		}
 
 		name, err := findInterfaceByIP(current.Address)

@@ -70,6 +70,7 @@ func init() {
 	rootCmd.AddCommand(statusCmd())
 	rootCmd.AddCommand(doctorCmd())
 	rootCmd.AddCommand(configCmd())
+	rootCmd.AddCommand(syncCmd())
 	rootCmd.AddCommand(dnsCmd)
 	rootCmd.AddCommand(unblockCmd)
 	rootCmd.AddCommand(interfaceCmd)

@@ -1,6 +1,7 @@
 package firewall
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -330,6 +331,20 @@ func (m *UnblockManager) restoreStaticRules() error {
 	return nil
 }
 
+func (m *UnblockManager) ResyncStaticEntries() (int, error) {
+	entries := m.staticRulesSnapshot()
+	var errs []error
+	count := 0
+	for _, entry := range entries {
+		if err := m.applyStaticEntry(entry.vpnType, entry.chain, entry.value, true); err != nil {
+			errs = append(errs, fmt.Errorf("%s/%s %s: %w", entry.vpnType, entry.chain, entry.value, err))
+			continue
+		}
+		count++
+	}
+	return count, errors.Join(errs...)
+}
+
 func (m *UnblockManager) staticRulesSnapshot() []ruleRef {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -378,7 +393,7 @@ func (m *UnblockManager) applyStaticEntry(vpnType, chainName, pattern string, ad
 	unlock := m.registry.LockSet(ipsetName)
 	defer unlock()
 
-	set, err := m.registry.ObtainOrCreateFamily(ipsetName, family)
+	set, err := m.registry.EnsureKernelFamily(ipsetName, family)
 	if err != nil {
 		return err
 	}

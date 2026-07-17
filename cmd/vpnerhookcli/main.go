@@ -20,6 +20,9 @@ func main() {
 		password string
 		family   string
 		table    string
+		iface    string
+		sysname  string
+		event    string
 		timeout  time.Duration
 	)
 
@@ -29,6 +32,9 @@ func main() {
 	flag.StringVar(&password, "password", "", "password for vpnerd")
 	flag.StringVar(&family, "family", "", "iptables family to restore (v4/v6)")
 	flag.StringVar(&table, "table", "", "iptables table that was flushed (nat/mangle)")
+	flag.StringVar(&iface, "iface", "", "NDM interface id for an interface state event (e.g. OpenVPN0)")
+	flag.StringVar(&sysname, "sysname", "", "kernel netdev for the interface event (e.g. ovpn_br0)")
+	flag.StringVar(&event, "event", "", "interface state: up or down")
 	flag.DurationVar(&timeout, "timeout", 5*time.Second, "RPC timeout")
 	var showVersion bool
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
@@ -68,7 +74,13 @@ func main() {
 
 	ctx, cancel := rt.Context(opts.Timeout)
 	defer cancel()
-	ctx = hookscope.AppendOutgoingContext(ctx, hookscope.Scope{Family: family, Table: table})
+	ctx = hookscope.AppendOutgoingContext(ctx, hookscope.Scope{
+		Family:     family,
+		Table:      table,
+		Interface:  iface,
+		SystemName: sysname,
+		Event:      hookscope.NormalizeEvent(event),
+	})
 
 	resp, err := rt.Client().HookRestore(ctx, &grpcpb.Empty{})
 	if err != nil {

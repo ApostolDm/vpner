@@ -183,7 +183,7 @@ func (i *IptablesManager) extendMarkRouteForFamily(f ipFamily, routing map[strin
 	if err != nil {
 		return err
 	}
-	if err := addMarkRules(f, info.ChainName, ipsetName, info.Mark, iface); err != nil {
+	if err := addMarkRules(f, info.ChainName, ipsetName, info.Mark, iface, i.exceptionsFor(f)); err != nil {
 		tryRun(jmp.Cmd, jmp.deleteArgs()...)
 		return err
 	}

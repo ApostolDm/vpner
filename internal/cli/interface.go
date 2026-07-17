@@ -25,7 +25,7 @@ func init() {
 func interfaceListCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
-		Short: "List tracked interfaces",
+		Short: "List tracked interfaces with live status",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return withClient(func(ctx context.Context, c grpcpb.VpnerManagerClient) error {
 				resp, err := c.InterfaceList(ctx, &grpcpb.Empty{})

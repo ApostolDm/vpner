@@ -81,6 +81,10 @@ func (i *IptablesManager) addRulesForFamily(f ipFamily, routing map[string]vpnRo
 
 	switch vpnType {
 	case vpnkind.OpenVPN, vpnkind.WireGuard, vpnkind.IKE, vpnkind.SSTP, vpnkind.PPPoE, vpnkind.L2TP, vpnkind.PPTP:
+		mark, err := pickMarkForFamily(routing, ipsetName)
+		if err != nil {
+			return err
+		}
 		if err := ensureChain(f.iptablesCmd, tableMangle, chainName); err != nil {
 			return err
 		}
@@ -91,7 +95,7 @@ func (i *IptablesManager) addRulesForFamily(f ipFamily, routing map[string]vpnRo
 			tryRun(f.iptablesCmd, "-t", tableMangle, "-X", chainName)
 			return err
 		}
-		mark, tableID := markAndTableFromIPSet(ipsetName)
+		tableID := mark
 
 		rollback := func(withIPRule bool) {
 			tryRun(jmp.Cmd, jmp.deleteArgs()...)
@@ -102,15 +106,15 @@ func (i *IptablesManager) addRulesForFamily(f ipFamily, routing map[string]vpnRo
 				tryRun("ip", append(f.ipFlags, "route", "flush", "table", fmt.Sprintf("%d", tableID))...)
 			}
 		}
-		if err := addMarkRules(f, chainName, ipsetName, mark, iface); err != nil {
+		if err := addMarkRules(f, chainName, ipsetName, mark, iface, i.exceptionsFor(f)); err != nil {
 			rollback(false)
 			return err
 		}
-		if err := addIPRule(f, mark, tableID); err != nil {
+		if err := addIPRule(f, mark, tableID); err != nil && !isExistsError(err) {
 			rollback(false)
 			return err
 		}
-		if err := addIPRoute(f, tableID, vpnIface); err != nil {
+		if err := addIPRoute(f, tableID, vpnIface); err != nil && !isExistsError(err) {
 			rollback(true)
 			return err
 		}
@@ -260,7 +264,7 @@ func (i *IptablesManager) buildTProxyBatch(f ipFamily, routing map[string]vpnRou
 			batch.Add(fmt.Sprintf("-A %s -m mark --mark %s -j RETURN", chainName, tproxyMark))
 		},
 		func(batch *iptablesBatch, chainName string, spec ChainSpec, iface string) {
-			addReturnCIDRs(batch, chainName, iface, f.localExceptions)
+			addReturnCIDRs(batch, chainName, iface, i.exceptionsFor(f))
 			addTProxyProtocolRules(batch, chainName, iface, spec.IPSetName, spec.Port)
 		},
 	)
@@ -362,18 +366,18 @@ func addReturnCIDRs(b *iptablesBatch, chainName, iface string, cidrs []string) {
 	}
 }
 
-func addMarkRules(f ipFamily, chainName, ipsetName string, mark int, iface string) error {
-	if err := commitMarkRules(f, chainName, ipsetName, mark, iface, true); err == nil {
+func addMarkRules(f ipFamily, chainName, ipsetName string, mark int, iface string, exceptions []string) error {
+	if err := commitMarkRules(f, chainName, ipsetName, mark, iface, true, exceptions); err == nil {
 		return nil
 	} else {
 		logx.Warnf("CONNMARK rules rejected for %s, falling back to plain marking (established flows will not survive ipset changes): %v", chainName, err)
 	}
-	return commitMarkRules(f, chainName, ipsetName, mark, iface, false)
+	return commitMarkRules(f, chainName, ipsetName, mark, iface, false, exceptions)
 }
 
 const vpnerMarkMask = "0x1fff"
 
-func commitMarkRules(f ipFamily, chainName, ipsetName string, mark int, iface string, withConnmark bool) error {
+func commitMarkRules(f ipFamily, chainName, ipsetName string, mark int, iface string, withConnmark bool, exceptions []string) error {
 	b := newBatch(f.iptablesCmd, tableMangle)
 
 	if withConnmark {
@@ -382,7 +386,7 @@ func commitMarkRules(f ipFamily, chainName, ipsetName string, mark int, iface st
 		b.Add(fmt.Sprintf("-A %s -i %s -m mark ! --mark 0/%s -j RETURN", chainName, iface, vpnerMarkMask))
 	}
 
-	addReturnCIDRs(b, chainName, iface, f.localExceptions)
+	addReturnCIDRs(b, chainName, iface, exceptions)
 
 	for _, proto := range []string{"tcp", "udp"} {
 		b.Add(fmt.Sprintf(
@@ -409,10 +413,44 @@ func addIPRoute(f ipFamily, tableID int, iface string) error {
 	return run("ip", args...)
 }
 
+const (
+	markTableMin = 100
+	markTableMax = 252
+)
+
+func markTableSpan() int { return markTableMax - markTableMin + 1 }
+
 func markAndTableFromIPSet(ipsetName string) (mark int, tableID int) {
-	id := int(checksumIPSetName(ipsetName)&0xFFF) + 100
-	if id == tproxyTableID {
-		id++
-	}
+	id := seededMarkID(checksumIPSetName(ipsetName))
 	return id, id
+}
+
+func seededMarkID(seed uint32) int {
+	id := int(seed%uint32(markTableSpan())) + markTableMin
+	if id == tproxyTableID {
+		id = markTableMin
+	}
+	return id
+}
+
+func pickMarkForFamily(routing map[string]vpnRoutingInfo, ipsetName string) (int, error) {
+	used := make(map[int]bool, len(routing))
+	for name, info := range routing {
+		if name == ipsetName || info.VPNType == vpnkind.Xray || info.Mark == 0 {
+			continue
+		}
+		used[info.Mark] = true
+	}
+	base := seededMarkID(checksumIPSetName(ipsetName))
+	span := markTableSpan()
+	for offset := 0; offset < span; offset++ {
+		id := (base-markTableMin+offset)%span + markTableMin
+		if id == tproxyTableID {
+			continue
+		}
+		if !used[id] {
+			return id, nil
+		}
+	}
+	return 0, fmt.Errorf("no free routing table id for %s: all %d slots in use", ipsetName, span-1)
 }
