@@ -105,8 +105,12 @@ func initCheck() error {
 	return nil
 }
 
+func ipsetPresent(name string) bool {
+	return exec.Command(ipsetPath, "-q", "-t", "list", name).Run() == nil
+}
+
 func (s *IPSet) createHashSet(name string) error {
-	exists := exec.Command(ipsetPath, "-q", "list", name).Run() == nil
+	exists := ipsetPresent(name)
 	if !exists {
 		args := []string{
 			"-exist",
@@ -248,7 +252,7 @@ func IPSetExists(name string) bool {
 	if err := initCheck(); err != nil {
 		return false
 	}
-	return exec.Command(ipsetPath, "-q", "list", name).Run() == nil
+	return ipsetPresent(name)
 }
 
 func EnsureIPSet(name, hashtype string, p *Params) error {
@@ -259,7 +263,7 @@ func EnsureIPSet(name, hashtype string, p *Params) error {
 		return fmt.Errorf("unsupported ipset type: %s", hashtype)
 	}
 	cfg := normalizeParams(p)
-	if err := exec.Command(ipsetPath, "-q", "list", name).Run(); err == nil {
+	if ipsetPresent(name) {
 		stub := &IPSet{Name: name, HashType: hashtype, HashFamily: cfg.HashFamily, HashSize: cfg.HashSize, MaxElem: cfg.MaxElem, Timeout: cfg.Timeout, WithComments: cfg.WithComments}
 		return ensureSetProperties(name, stub)
 	}
@@ -325,16 +329,16 @@ func ensureSetProperties(name string, set *IPSet) error {
 	if set.Timeout <= 0 && !set.WithComments {
 		return nil
 	}
-	data, err := exec.Command(ipsetPath, "save", name).CombinedOutput()
+	header, err := exec.Command(ipsetPath, "-t", "list", name).CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("failed to inspect ipset %s: %v (%s)", name, err, data)
+		return fmt.Errorf("failed to inspect ipset %s: %v (%s)", name, err, header)
 	}
-	createLine, err := findCreateLine(data, name)
+	headerLine, err := findHeaderLine(header)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to inspect ipset %s: %w", name, err)
 	}
-	timeoutValue, hasTimeout := parseTimeoutValue(createLine)
-	hasComment := strings.Contains(createLine, " comment")
+	timeoutValue, hasTimeout := parseTimeoutValue(headerLine)
+	hasComment := strings.Contains(headerLine, " comment")
 	needRecreate := false
 	if set.Timeout > 0 {
 		if !hasTimeout || timeoutValue != set.Timeout {
@@ -350,6 +354,10 @@ func ensureSetProperties(name string, set *IPSet) error {
 		return nil
 	}
 	logx.Infof("ipset %s missing required options; recreating", name)
+	data, err := exec.Command(ipsetPath, "save", name).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to dump ipset %s for recreate: %v (%s)", name, err, data)
+	}
 	entries := extractAddLines(data, name)
 	if set.Timeout <= 0 {
 		for i, line := range entries {
@@ -362,18 +370,18 @@ func ensureSetProperties(name string, set *IPSet) error {
 	return nil
 }
 
-func findCreateLine(data []byte, name string) (string, error) {
+func findHeaderLine(data []byte) (string, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(line, "create ") {
-			parts := strings.Fields(line)
-			if len(parts) > 2 && parts[1] == name {
-				return line, nil
-			}
+		if strings.HasPrefix(line, "Header:") {
+			return line, nil
 		}
 	}
-	return "", scanner.Err()
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return "", fmt.Errorf("no Header line in ipset -t list output")
 }
 
 func extractAddLines(data []byte, name string) []string {
@@ -511,7 +519,7 @@ func listEntriesWithComments(name string) ([]ipsetEntry, error) {
 	if err := initCheck(); err != nil {
 		return nil, err
 	}
-	if err := exec.Command(ipsetPath, "-q", "list", name).Run(); err != nil {
+	if !ipsetPresent(name) {
 		return nil, nil
 	}
 	data, err := exec.Command(ipsetPath, "save", name).CombinedOutput()
@@ -545,7 +553,7 @@ func removeEntries(name string, entries []string) error {
 	if err := initCheck(); err != nil {
 		return err
 	}
-	if err := exec.Command(ipsetPath, "-q", "list", name).Run(); err != nil {
+	if !ipsetPresent(name) {
 		return nil
 	}
 

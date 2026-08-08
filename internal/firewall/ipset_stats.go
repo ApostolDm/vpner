@@ -26,7 +26,7 @@ func ManagedIpsetCounts() (v4, v6 int64) {
 }
 
 func ipsetEntryCount(name string) int64 {
-	out, err := exec.Command(ipsetPath, "list", name).CombinedOutput()
+	out, err := exec.Command(ipsetPath, "-t", "list", name).CombinedOutput()
 	if err != nil {
 		return 0
 	}

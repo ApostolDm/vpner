@@ -77,9 +77,12 @@ func (r *IPSetRegistry) ObtainOrCreateFamily(name, family string) (*IPSet, error
 }
 
 func (r *IPSetRegistry) EnsureKernelFamily(name, family string) (*IPSet, error) {
-	set, err := r.ObtainOrCreateFamily(name, family)
-	if err != nil {
-		return nil, err
+	r.mu.Lock()
+	set, cached := r.sets[name]
+	r.mu.Unlock()
+
+	if !cached {
+		return r.ObtainOrCreateFamily(name, family)
 	}
 	if IPSetExists(name) {
 		return set, nil
