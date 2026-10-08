@@ -1,7 +1,6 @@
 package firewall
 
 import (
-	"path/filepath"
 	"testing"
 
 	"github.com/ApostolDmitry/vpner/internal/vpnkind"
@@ -10,7 +9,7 @@ import (
 func TestDelChainMissingIsNoop(t *testing.T) {
 	t.Parallel()
 
-	mgr := NewUnblockManager(filepath.Join(t.TempDir(), "rules.yaml"), false, false, 0, 0, nil)
+	mgr := newTestUnblockManager(t)
 	if err := mgr.DelChain(vpnkind.OpenVPN.String(), "ovpn0"); err != nil {
 		t.Fatalf("DelChain on empty config: %v", err)
 	}
@@ -24,44 +23,24 @@ func TestDelChainMissingIsNoop(t *testing.T) {
 	if err := mgr.DelChain(vpnkind.OpenVPN.String(), "ovpn0"); err != nil {
 		t.Fatalf("DelChain: %v", err)
 	}
-	if rules, err := mgr.GetRules(vpnkind.OpenVPN.String(), "ovpn0"); err == nil && len(rules) != 0 {
-		t.Fatalf("chain rules survived DelChain: %#v", rules)
+	if n := mgr.RuleCount(vpnkind.OpenVPN.String(), "ovpn0"); n != 0 {
+		t.Fatalf("chain rules survived DelChain: %d", n)
 	}
 }
 
-func TestUnblockManagerReturnsCopies(t *testing.T) {
+func TestGroupsReturnsCopies(t *testing.T) {
 	t.Parallel()
 
-	mgr := NewUnblockManager(filepath.Join(t.TempDir(), "rules.yaml"), false, false, 0, 0, nil)
+	mgr := newTestUnblockManager(t)
 	if err := mgr.AddRule(vpnkind.OpenVPN.String(), "ovpn0", "*.example.com"); err != nil {
 		t.Fatalf("AddRule: %v", err)
 	}
 
-	rules, err := mgr.GetRules(vpnkind.OpenVPN.String(), "ovpn0")
-	if err != nil {
-		t.Fatalf("GetRules: %v", err)
-	}
-	rules[0] = "mutated.example.com"
+	groups := mgr.Groups()
+	groups[0].Rules[0] = "mutated.example.com"
 
-	rulesAgain, err := mgr.GetRules(vpnkind.OpenVPN.String(), "ovpn0")
-	if err != nil {
-		t.Fatalf("GetRules again: %v", err)
-	}
-	if rulesAgain[0] != "*.example.com" {
-		t.Fatalf("GetRules leaked internal slice mutation: %#v", rulesAgain)
-	}
-
-	conf, err := mgr.GetAllRules()
-	if err != nil {
-		t.Fatalf("GetAllRules: %v", err)
-	}
-	conf.Rules[vpnkind.OpenVPN.String()]["ovpn0"][0] = "mutated-again.example.com"
-
-	confAgain, err := mgr.GetAllRules()
-	if err != nil {
-		t.Fatalf("GetAllRules again: %v", err)
-	}
-	if confAgain.Rules[vpnkind.OpenVPN.String()]["ovpn0"][0] != "*.example.com" {
-		t.Fatalf("GetAllRules leaked internal config mutation: %#v", confAgain.Rules)
+	again := mgr.Groups()
+	if again[0].Rules[0] != "*.example.com" {
+		t.Fatalf("Groups leaked internal slice mutation: %#v", again[0].Rules)
 	}
 }

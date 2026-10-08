@@ -15,10 +15,7 @@ func TestMarkAndTableFitBusyboxTableRange(t *testing.T) {
 		names = append(names, fmt.Sprintf("vpner-OpenVPN-chain%d", i))
 	}
 	for _, name := range names {
-		mark, tableID := markAndTableFromIPSet(name)
-		if mark != tableID {
-			t.Fatalf("%s: mark %d != table %d", name, mark, tableID)
-		}
+		mark := seededMarkID(checksumIPSetName(name))
 		if mark < markTableMin || mark > markTableMax {
 			t.Fatalf("%s: id %d outside busybox-safe range [%d,%d]", name, mark, markTableMin, markTableMax)
 		}

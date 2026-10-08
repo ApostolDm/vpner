@@ -73,7 +73,7 @@ func TestResolveLocalExceptionsIgnoresInvalid(t *testing.T) {
 func TestExceptionsForSelectsFamily(t *testing.T) {
 	t.Parallel()
 
-	m := NewIptablesManager(true, false, 3600, []string{"192.168.1.0/24"})
+	m := NewIptablesManager(true, false, 3600, []string{"192.168.1.0/24"}, nil)
 	if !contains(m.exceptionsFor(familyV4), "192.168.1.0/24") {
 		t.Fatalf("v4 family must use overridden list: %v", m.exceptionsFor(familyV4))
 	}

@@ -138,12 +138,11 @@ func ensureManagedIPSet(ipsetName string, ipv6 bool, entryTimeout int) error {
 	if IPSetExists(ipsetName) {
 		return nil
 	}
-
-	params := &Params{Timeout: entryTimeout, WithComments: true}
+	family := "inet"
 	if ipv6 {
-		params.HashFamily = "inet6"
+		family = "inet6"
 	}
-	if err := EnsureIPSet(ipsetName, "hash:net", params); err != nil {
+	if _, err := EnsureIPSet(ipsetName, family, entryTimeout); err != nil {
 		return fmt.Errorf("ensure ipset %s: %w", ipsetName, err)
 	}
 	return nil

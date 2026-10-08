@@ -21,7 +21,6 @@ type QueryStats struct {
 	Custom    int64
 	DoH       int64
 	Servfail  int64
-	Refused   int64
 	NXDomain  int64
 }
 
@@ -31,7 +30,6 @@ type queryMetrics struct {
 	custom    atomic.Int64
 	doh       atomic.Int64
 	servfail  atomic.Int64
-	refused   atomic.Int64
 	nxdomain  atomic.Int64
 }
 
@@ -51,6 +49,14 @@ type aaaaFilter interface {
 	DropAAAA(domain string) bool
 }
 
+type ttlClamper interface {
+	ClampTTL(domain string) int
+}
+
+type syncPolicy interface {
+	AsyncSync() bool
+}
+
 type Server struct {
 	config        conf.ServerConfig
 	connSemaphore chan struct{}
@@ -59,11 +65,11 @@ type Server struct {
 	customTimeout time.Duration
 	resolver      *Upstream
 	cache         *answerCache
-	limiter       *rateLimiter
 	udpServer     *dns.Server
 	tcpServer     *dns.Server
 	notifyStarted func()
 	metrics       queryMetrics
+	asyncSync     bool
 }
 
 func (s *Server) Stats() QueryStats {
@@ -73,7 +79,6 @@ func (s *Server) Stats() QueryStats {
 		Custom:    s.metrics.custom.Load(),
 		DoH:       s.metrics.doh.Load(),
 		Servfail:  s.metrics.servfail.Load(),
-		Refused:   s.metrics.refused.Load(),
 		NXDomain:  s.metrics.nxdomain.Load(),
 	}
 }
@@ -89,11 +94,12 @@ func NewServer(cfg conf.ServerConfig, ipManager IPSyncer, resolver *Upstream) *S
 	if cfg.CustomResolveTimeout > 0 {
 		s.customTimeout = time.Duration(cfg.CustomResolveTimeout) * time.Second
 	}
+	s.asyncSync = ipManager != nil
+	if p, ok := ipManager.(syncPolicy); ok {
+		s.asyncSync = p.AsyncSync()
+	}
 	if cfg.Cache == nil || *cfg.Cache {
 		s.cache = newAnswerCache(cfg.CacheMaxEntries)
-	}
-	if cfg.RateLimit > 0 {
-		s.limiter = newRateLimiter(cfg.RateLimit)
 	}
 
 	for resolverAddr, entries := range cfg.CustomResolve {
@@ -185,14 +191,6 @@ func (s *Server) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 		logx.Infof("DNS query from %s: %s", source, questions)
 	}
 
-	if s.limiter != nil && !s.limiter.allow(formatRemoteAddr(w)) {
-		s.metrics.refused.Add(1)
-		m := new(dns.Msg)
-		m.SetRcode(r, dns.RcodeRefused)
-		reply(m)
-		return
-	}
-
 	domain := extractDomain(r)
 	customIP := s.matchCustomResolver(domain)
 
@@ -200,10 +198,11 @@ func (s *Server) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 		if cached := s.cache.get(r); cached != nil {
 			s.metrics.cacheHits.Add(1)
 			s.maybeStripAAAA(domain, cached)
+			s.maybeClampTTL(domain, cached)
 			countResult(cached)
 			s.programRoutes(domain, cached)
 			reply(cached)
-			if domain != "" {
+			if domain != "" && s.asyncSync {
 				go s.processDomainAnswers(domain, cached)
 			}
 			return
@@ -232,6 +231,7 @@ func (s *Server) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 		}
 		resp.Id = r.Id
 		s.maybeStripAAAA(domain, resp)
+		s.maybeClampTTL(domain, resp)
 		s.metrics.custom.Add(1)
 		countResult(resp)
 		s.programRoutes(domain, resp)
@@ -240,7 +240,7 @@ func (s *Server) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 			logx.Infof("DNS response to %s for %s (custom %s, %s): %s",
 				source, questions, customIP, formatRcode(resp), formatAnswers(resp))
 		}
-		if domain != "" {
+		if domain != "" && s.asyncSync {
 			go s.processDomainAnswers(domain, resp)
 		}
 		return
@@ -273,13 +273,14 @@ func (s *Server) handleDNSRequest(w dns.ResponseWriter, r *dns.Msg) {
 		s.cache.put(msg)
 	}
 	s.maybeStripAAAA(domain, msg)
+	s.maybeClampTTL(domain, msg)
 	s.programRoutes(domain, msg)
 	reply(msg)
 	if s.config.Verbose {
 		logx.Infof("DNS response to %s for %s (%s): %s",
 			source, questions, formatRcode(msg), formatAnswers(msg))
 	}
-	if domain != "" {
+	if domain != "" && s.asyncSync {
 		go s.processDomainAnswers(domain, msg)
 	}
 }
@@ -309,6 +310,35 @@ func (s *Server) processDomainAnswers(domain string, msg *dns.Msg) {
 	}
 	if err := s.ipManager.SyncFromAnswers(domain, ips); err != nil {
 		logx.Warnf("IP rule sync error for domain %s: %v", domain, err)
+	}
+}
+
+func (s *Server) maybeClampTTL(domain string, msg *dns.Msg) {
+	if domain == "" || msg == nil {
+		return
+	}
+	clamper, ok := s.ipManager.(ttlClamper)
+	if !ok {
+		return
+	}
+	limit := clamper.ClampTTL(domain)
+	if limit <= 0 {
+		return
+	}
+	clampMsgTTL(msg, uint32(limit))
+}
+
+func clampMsgTTL(m *dns.Msg, limit uint32) {
+	for _, section := range [][]dns.RR{m.Answer, m.Ns, m.Extra} {
+		for _, rr := range section {
+			h := rr.Header()
+			if h.Rrtype == dns.TypeOPT {
+				continue
+			}
+			if h.Ttl > limit {
+				h.Ttl = limit
+			}
+		}
 	}
 }
 

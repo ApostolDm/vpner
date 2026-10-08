@@ -21,7 +21,7 @@ type Runtime struct {
 
 func NewRuntime(opts ResolvedOptions) (*Runtime, error) {
 	target := dialTarget(opts)
-	conn, err := grpc.Dial(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("dial %s: %w", target, err)
 	}
@@ -40,10 +40,10 @@ func dialTarget(opts ResolvedOptions) string {
 		}
 		return "unix://" + opts.Unix
 	}
-	if strings.HasPrefix(opts.Addr, "unix://") {
+	if strings.Contains(opts.Addr, "://") {
 		return opts.Addr
 	}
-	return opts.Addr
+	return "passthrough:///" + opts.Addr
 }
 
 func (r *Runtime) Client() grpcpb.VpnerManagerClient {

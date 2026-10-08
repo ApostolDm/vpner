@@ -89,14 +89,12 @@ func (s *VpnerServer) HookRestore(ctx context.Context, _ *grpcpb.Empty) (*grpcpb
 	restoreV4 := scope.RestoreIPv4()
 	restoreV6 := scope.RestoreIPv6()
 
-	if s.xrayRouter != nil {
-		if scope.Table != "" {
-			s.xrayRouter.ClearAppliedState(scope.Table, restoreV4, restoreV6)
-		} else if restoreV4 && restoreV6 {
-			s.xrayRouter.ClearAppliedState("", true, true)
-		} else {
-			s.xrayRouter.ResetStateFamily(restoreV4, restoreV6)
-		}
+	if scope.Table != "" {
+		s.iptables.ResetAfterFlush(scope.Table, restoreV4, restoreV6)
+	} else if restoreV4 && restoreV6 {
+		s.iptables.ResetAfterFlush("", true, true)
+	} else {
+		s.iptables.ResetXrayFamilies(restoreV4, restoreV6)
 	}
 
 	s.RestoreMarkRouting(scope.Table)
@@ -165,7 +163,7 @@ func (s *VpnerServer) XrayDelete(_ context.Context, req *grpcpb.XrayRequest) (*g
 	if err := s.xrayService.Delete(req.ChainName); err != nil {
 		return errorGeneric(fmt.Sprintf("Failed to delete Xray: %v", err)), nil
 	}
-	if err := s.unblock.DeleteChain(vpnkind.Xray.String(), req.ChainName); err != nil {
+	if err := s.unblock.DelChain(vpnkind.Xray.String(), req.ChainName); err != nil {
 		return errorGeneric(fmt.Sprintf("Failed to delete unblock chain: %v", err)), nil
 	}
 	return successGeneric(fmt.Sprintf("Xray deleted successfully: %s", req.ChainName)), nil

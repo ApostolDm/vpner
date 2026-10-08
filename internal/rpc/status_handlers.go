@@ -2,6 +2,8 @@ package rpc
 
 import (
 	"context"
+	"runtime"
+	"runtime/debug"
 	"time"
 
 	grpcpb "github.com/ApostolDmitry/vpner/internal/grpc"
@@ -51,10 +53,19 @@ func (s *VpnerServer) Status(_ context.Context, _ *grpcpb.Empty) (*grpcpb.Status
 		})
 	}
 
-	if groups, err := s.unblock.List(); err == nil {
-		for _, g := range groups {
-			resp.UnblockRuleCount += int32(len(g.Rules))
-		}
+	for _, g := range s.unblock.Groups() {
+		resp.UnblockRuleCount += int32(len(g.Rules))
+	}
+
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	resp.RuntimeStats = &grpcpb.RuntimeStats{
+		HeapAllocBytes:   ms.HeapAlloc,
+		HeapSysBytes:     ms.HeapSys,
+		SysBytes:         ms.Sys,
+		Goroutines:       int32(runtime.NumGoroutine()),
+		NumGc:            ms.NumGC,
+		MemoryLimitBytes: debug.SetMemoryLimit(-1),
 	}
 
 	for _, st := range s.dns.UpstreamStats() {
@@ -73,7 +84,6 @@ func (s *VpnerServer) Status(_ context.Context, _ *grpcpb.Empty) (*grpcpb.Status
 		Custom:    qs.Custom,
 		Doh:       qs.DoH,
 		Servfail:  qs.Servfail,
-		Refused:   qs.Refused,
 		Nxdomain:  qs.NXDomain,
 	}
 

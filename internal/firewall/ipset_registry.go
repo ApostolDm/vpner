@@ -11,7 +11,7 @@ type refreshRecord struct {
 	at  time.Time
 }
 
-const refreshSeenMax = 8192
+const refreshSeenMax = 2048
 
 type IPSetRegistry struct {
 	mu           sync.Mutex
@@ -61,8 +61,7 @@ func (r *IPSetRegistry) ObtainOrCreateFamily(name, family string) (*IPSet, error
 	timeout := r.entryTimeout
 	r.mu.Unlock()
 
-	params := &Params{Timeout: timeout, WithComments: true, HashFamily: family}
-	set, err := NewIPset(name, "hash:net", params)
+	set, err := EnsureIPSet(name, family, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -94,16 +93,20 @@ func (r *IPSetRegistry) EnsureKernelFamily(name, family string) (*IPSet, error) 
 	return r.ObtainOrCreateFamily(name, family)
 }
 
-func (r *IPSetRegistry) IsLegacySwept(name string) bool {
+func (r *IPSetRegistry) TryBeginLegacySweep(name string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.legacySwept[name]
+	if r.legacySwept[name] {
+		return false
+	}
+	r.legacySwept[name] = true
+	return true
 }
 
-func (r *IPSetRegistry) MarkLegacySwept(name string) {
+func (r *IPSetRegistry) ResetLegacySweep(name string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.legacySwept[name] = true
+	delete(r.legacySwept, name)
 }
 
 func (r *IPSetRegistry) RecentlyRefreshed(key, fingerprint string, window time.Duration) bool {

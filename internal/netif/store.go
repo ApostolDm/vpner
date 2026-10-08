@@ -4,11 +4,25 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 
-	"github.com/ApostolDmitry/vpner/internal/fileutil"
 	"gopkg.in/yaml.v3"
 )
+
+func ensureFile(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("create dir for %s: %w", path, err)
+	}
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		file, err := os.OpenFile(path, os.O_RDONLY|os.O_CREATE, 0644)
+		if err != nil {
+			return fmt.Errorf("create file %s: %w", path, err)
+		}
+		_ = file.Close()
+	}
+	return nil
+}
 
 type trackedStore struct {
 	outputFile string
@@ -20,7 +34,7 @@ func newTrackedStore(outputFile string) *trackedStore {
 }
 
 func (s *trackedStore) Load() (*VPNInterfaces, error) {
-	if err := fileutil.EnsureFile(s.outputFile); err != nil {
+	if err := ensureFile(s.outputFile); err != nil {
 		return nil, err
 	}
 
@@ -72,7 +86,7 @@ func (s *trackedStore) LookupInterface(name string) (Interface, bool) {
 }
 
 func (s *trackedStore) modify(fn func(map[string]Interface) error) error {
-	if err := fileutil.EnsureFile(s.outputFile); err != nil {
+	if err := ensureFile(s.outputFile); err != nil {
 		return err
 	}
 

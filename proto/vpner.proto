@@ -49,6 +49,16 @@ message StatusResponse {
   repeated LogEvent recent_events = 10;
   int64 ipset_entries_v4 = 11;
   int64 ipset_entries_v6 = 12;
+  RuntimeStats runtime_stats = 13;
+}
+
+message RuntimeStats {
+  uint64 heap_alloc_bytes = 1;
+  uint64 heap_sys_bytes = 2;
+  uint64 sys_bytes = 3;
+  int32 goroutines = 4;
+  uint32 num_gc = 5;
+  int64 memory_limit_bytes = 6;
 }
 
 message QueryStats {
@@ -57,7 +67,6 @@ message QueryStats {
   int64 custom = 3;
   int64 doh = 4;
   int64 servfail = 5;
-  int64 refused = 6;
   int64 nxdomain = 7;
 }
 

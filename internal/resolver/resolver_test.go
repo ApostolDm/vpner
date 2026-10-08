@@ -15,7 +15,7 @@ func TestNormalizeConfigDefaults(t *testing.T) {
 		Servers:   []string{" https://a/dns-query ", "https://a/dns-query", ""},
 		Resolvers: []string{"1.1.1.1", "1.1.1.1"},
 	})
-	if cfg.CacheTTL != 300 || cfg.HTTPTimeout != 8 || cfg.MaxConcurrentRequests != 256 {
+	if cfg.CacheTTL != 300 || cfg.HTTPTimeout != 8 || cfg.MaxConcurrentRequests != 64 {
 		t.Fatalf("defaults not applied: %+v", cfg)
 	}
 	if len(cfg.Servers) != 1 || cfg.Servers[0] != "https://a/dns-query" {

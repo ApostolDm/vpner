@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 
 	grpcpb "github.com/ApostolDmitry/vpner/internal/grpc"
-	"github.com/ApostolDmitry/vpner/internal/tablefmt"
 )
 
 var xrayCmd = &cobra.Command{
@@ -38,9 +37,6 @@ func xrayTestCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if jsonOut {
-					return emitJSON(resp)
-				}
 				return printGenericResponse(resp)
 			})
 		},
@@ -57,29 +53,18 @@ func xrayListCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if jsonOut {
-					return emitJSON(resp)
-				}
-				tbl := tablefmt.Table{Headers: []string{"Chain", "Type", "Host", "Port", "AutoRun", "Status"}}
+				var rows [][]string
 				for _, item := range resp.List {
 					status := "down"
 					if item.Status {
 						status = "running"
 					}
-					auto := "no"
-					if item.AutoRun {
-						auto = "yes"
-					}
-					tbl.Rows = append(tbl.Rows, []string{
-						item.ChainName,
-						item.Type,
-						item.Host,
-						fmt.Sprintf("%d", item.Port),
-						auto,
-						status,
+					rows = append(rows, []string{
+						item.ChainName, item.Type, item.Host,
+						fmt.Sprintf("%d", item.Port), yesNo(item.AutoRun), status,
 					})
 				}
-				printTable(tbl)
+				printTable([]string{"Chain", "Type", "Host", "Port", "AutoRun", "Status"}, rows)
 				return nil
 			})
 		},

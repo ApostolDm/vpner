@@ -15,7 +15,6 @@ var (
 	password     string
 	timeout      string
 	defaultChain string
-	jsonOut      bool
 
 	rt                   *rpcclient.Runtime
 	resolvedDefaultChain string
@@ -65,11 +64,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&password, "password", "p", "", "password for vpnerd")
 	rootCmd.PersistentFlags().StringVar(&timeout, "timeout", "", "RPC timeout (e.g. 30s or 10 for seconds)")
 	rootCmd.PersistentFlags().StringVar(&defaultChain, "default-chain", "", "default chain for commands that require --chain")
-	rootCmd.PersistentFlags().BoolVar(&jsonOut, "json", false, "output machine-readable JSON")
 
 	rootCmd.AddCommand(statusCmd())
-	rootCmd.AddCommand(doctorCmd())
-	rootCmd.AddCommand(configCmd())
 	rootCmd.AddCommand(updateCmd())
 	rootCmd.AddCommand(syncCmd())
 	rootCmd.AddCommand(dnsCmd)

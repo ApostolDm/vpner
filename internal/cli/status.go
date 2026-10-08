@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	grpcpb "github.com/ApostolDmitry/vpner/internal/grpc"
-	"github.com/ApostolDmitry/vpner/internal/tablefmt"
 )
 
 func statusCmd() *cobra.Command {
@@ -20,9 +19,6 @@ func statusCmd() *cobra.Command {
 				resp, err := c.Status(ctx, &grpcpb.Empty{})
 				if err != nil {
 					return err
-				}
-				if jsonOut {
-					return emitJSON(resp)
 				}
 				printStatus(resp)
 				return nil
@@ -36,7 +32,7 @@ func printStatus(s *grpcpb.StatusResponse) {
 	if s.DnsRunning {
 		dns = fmt.Sprintf("running :%d", s.DnsPort)
 	}
-	mode := "REDIRECT"
+	mode := "REDIRECT (tcp-only)"
 	if s.TproxyEnabled {
 		mode = "TPROXY"
 	}
@@ -45,19 +41,27 @@ func printStatus(s *grpcpb.StatusResponse) {
 	if s.IpsetEntriesV4 > 0 || s.IpsetEntriesV6 > 0 {
 		fmt.Printf("ipset entries: %d v4, %d v6\n", s.IpsetEntriesV4, s.IpsetEntriesV6)
 	}
+	if rs := s.RuntimeStats; rs != nil {
+		limit := "off"
+		if rs.MemoryLimitBytes > 0 && rs.MemoryLimitBytes < 1<<62 {
+			limit = humanBytes(uint64(rs.MemoryLimitBytes))
+		}
+		fmt.Printf("memory: heap %s (reserved %s), rss-ish %s, limit %s, goroutines %d, GC runs %d\n",
+			humanBytes(rs.HeapAllocBytes), humanBytes(rs.HeapSysBytes), humanBytes(rs.SysBytes), limit, rs.Goroutines, rs.NumGc)
+	}
 	if q := s.QueryStats; q != nil && q.Total > 0 {
-		fmt.Printf("DNS queries: %d total  (cache %d, DoH %d, custom %d, NXDOMAIN %d, servfail %d, refused %d)\n",
-			q.Total, q.CacheHits, q.Doh, q.Custom, q.Nxdomain, q.Servfail, q.Refused)
+		fmt.Printf("DNS queries: %d total  (cache %d, DoH %d, custom %d, NXDOMAIN %d, servfail %d)\n",
+			q.Total, q.CacheHits, q.Doh, q.Custom, q.Nxdomain, q.Servfail)
 	}
 
 	if len(s.Chains) > 0 {
-		tbl := tablefmt.Table{Headers: []string{"Chain", "Type", "Host", "Port", "In", "AutoRun", "State", "Restarts", "Uptime"}}
+		var rows [][]string
 		for _, ch := range s.Chains {
 			state := "down"
 			if ch.Running {
 				state = "up"
 			}
-			tbl.Rows = append(tbl.Rows, []string{
+			rows = append(rows, []string{
 				ch.Name, ch.Type, ch.Host,
 				fmt.Sprintf("%d", ch.Port), fmt.Sprintf("%d", ch.InboundPort),
 				yesNo(ch.AutoRun), state,
@@ -65,22 +69,20 @@ func printStatus(s *grpcpb.StatusResponse) {
 			})
 		}
 		fmt.Println()
-		printTable(tbl)
+		printTable([]string{"Chain", "Type", "Host", "Port", "In", "AutoRun", "State", "Restarts", "Uptime"}, rows)
 	}
 
 	if len(s.DohServers) > 0 {
-		tbl := tablefmt.Table{Headers: []string{"DoH server", "OK", "Fail", "Latency"}}
+		var rows [][]string
 		for _, d := range s.DohServers {
 			lat := "-"
 			if d.LastLatencyMs > 0 {
 				lat = fmt.Sprintf("%dms", d.LastLatencyMs)
 			}
-			tbl.Rows = append(tbl.Rows, []string{
-				d.Server, fmt.Sprintf("%d", d.Successes), fmt.Sprintf("%d", d.Failures), lat,
-			})
+			rows = append(rows, []string{d.Server, fmt.Sprintf("%d", d.Successes), fmt.Sprintf("%d", d.Failures), lat})
 		}
 		fmt.Println()
-		printTable(tbl)
+		printTable([]string{"DoH server", "OK", "Fail", "Latency"}, rows)
 	}
 
 	if len(s.RecentEvents) > 0 {

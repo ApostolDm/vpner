@@ -3,11 +3,12 @@ package agent
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"sync"
 	"time"
 
 	"github.com/ApostolDmitry/vpner/internal/conf"
-	dnssvc "github.com/ApostolDmitry/vpner/internal/dnssvc"
+	firewall "github.com/ApostolDmitry/vpner/internal/firewall"
 	"github.com/ApostolDmitry/vpner/internal/logx"
 	proxysvc "github.com/ApostolDmitry/vpner/internal/proxysvc"
 	"github.com/ApostolDmitry/vpner/internal/resolver"
@@ -15,27 +16,23 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-const defaultReconcileInterval = 45 * time.Second
+const (
+	defaultReconcileInterval = 45 * time.Second
+	watchdogBaseThreshold    = 2
+	watchdogMaxThreshold     = 32
+)
 
 type Runtime struct {
 	cfg conf.FullConfig
 
-	dnsService *dnssvc.Service
+	dnsService *resolver.Service
 	xraySvc    *proxysvc.Service
 	serverImpl *rpc.VpnerServer
-	resolver   *resolver.Upstream
+	upstream   *resolver.Upstream
+	keepalive  *firewall.KeepaliveSweeper
 
 	grpcServers []*grpcInstance
 	shutdown    sync.Once
-
-	mu           sync.Mutex
-	shuttingDown bool
-}
-
-func (r *Runtime) isShuttingDown() bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.shuttingDown
 }
 
 func New(cfg conf.FullConfig) (*Runtime, error) {
@@ -48,7 +45,8 @@ func New(cfg conf.FullConfig) (*Runtime, error) {
 		dnsService: graph.dnsService,
 		xraySvc:    graph.xraySvc,
 		serverImpl: graph.grpcServer,
-		resolver:   graph.resolver,
+		upstream:   graph.upstream,
+		keepalive:  graph.keepalive,
 	}, nil
 }
 
@@ -78,13 +76,13 @@ func (r *Runtime) Run(ctx context.Context) error {
 
 	grp, _ := errgroup.WithContext(ctx)
 	for _, inst := range r.grpcServers {
-		inst := inst
-		grp.Go(func() error {
-			return inst.Serve()
-		})
+		grp.Go(inst.Serve)
 	}
 
 	go r.runWatchdog(ctx)
+	if r.keepalive != nil {
+		go r.runKeepalive(ctx)
+	}
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -108,19 +106,29 @@ func (r *Runtime) Run(ctx context.Context) error {
 	}
 }
 
-func (r *Runtime) Reload(configFile string) {
-	defer logx.Recover("reload")
-	if r.isShuttingDown() {
-		logx.Infof("reload ignored: shutdown in progress")
-		return
+type backoff struct {
+	misses    int
+	threshold int
+}
+
+func newBackoff() *backoff {
+	return &backoff{threshold: watchdogBaseThreshold}
+}
+
+func (b *backoff) reset() {
+	b.misses, b.threshold = 0, watchdogBaseThreshold
+}
+
+func (b *backoff) due() bool {
+	b.misses++
+	if b.misses < b.threshold {
+		return false
 	}
-	if _, err := conf.LoadFullConfig(configFile); err != nil {
-		logx.Errorf("reload aborted, config invalid: %v", err)
-		return
+	b.misses = 0
+	if b.threshold < watchdogMaxThreshold {
+		b.threshold *= 2
 	}
-	logx.Infof("reload: reconciling Xray routing")
-	r.serverImpl.ReconcileRouting()
-	logx.Infof("reload complete")
+	return true
 }
 
 func (r *Runtime) runWatchdog(ctx context.Context) {
@@ -137,88 +145,72 @@ func (r *Runtime) runWatchdog(ctx context.Context) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	const baseThreshold, maxThreshold = 2, 32
-	misses, threshold := 0, baseThreshold
-	markMisses, markThreshold := 0, baseThreshold
+	mark, xray := newBackoff(), newBackoff()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if r.isShuttingDown() {
-				return
-			}
-
 			if r.serverImpl.MarkRoutingHealthy() {
-				markMisses, markThreshold = 0, baseThreshold
-			} else if markMisses++; markMisses >= markThreshold {
+				mark.reset()
+			} else if mark.due() {
 				logx.Warnf("routing watchdog: interface VPN routing incomplete; restoring")
 				r.serverImpl.RestoreMarkRouting("")
-				markMisses = 0
-
-				if markThreshold < maxThreshold {
-					markThreshold *= 2
-				}
 			}
 
 			if r.serverImpl.RoutingHealthy() {
-				misses, threshold = 0, baseThreshold
-				continue
-			}
-			if misses++; misses >= threshold {
+				xray.reset()
+			} else if xray.due() {
 				logx.Warnf("routing watchdog: managed routing missing from kernel; reconciling")
 				r.serverImpl.ReconcileRouting()
-				misses = 0
-
-				if threshold < maxThreshold {
-					threshold *= 2
-				}
 			}
 		}
 	}
 }
 
+func (r *Runtime) runKeepalive(ctx context.Context) {
+	defer logx.Recover("ipset keepalive")
+	ticker := time.NewTicker(r.keepalive.Interval())
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if !r.keepalive.SweepOnce() {
+				return
+			}
+			debug.FreeOSMemory()
+		}
+	}
+}
+
 func (r *Runtime) buildGRPCServers() ([]*grpcInstance, error) {
-	builder := newGRPCListenerBuilder(r.cfg.GRPC, r.serverImpl)
-	listeners, err := builder.Build()
+	listeners, err := newGRPCListenerBuilder(r.cfg.GRPC, r.serverImpl).Build()
 	if err != nil {
 		return nil, err
 	}
 	for _, inst := range listeners {
-		switch inst.network {
-		case "tcp":
-			logx.Infof("gRPC listening on %s (tcp)", inst.address)
-		case "unix":
-			logx.Infof("gRPC listening on %s (unix)", inst.address)
-		}
+		logx.Infof("gRPC listening on %s (%s)", inst.address, inst.network)
 	}
 	return listeners, nil
 }
 
 func (r *Runtime) shutdownRuntime() {
 	r.shutdown.Do(func() {
-		r.mu.Lock()
-		r.shuttingDown = true
-		r.mu.Unlock()
-
 		for _, inst := range r.grpcServers {
 			inst.Stop()
 		}
 		r.grpcServers = nil
 
-		if r.dnsService != nil {
-			logx.Infof("Stopping DNS service")
-			r.dnsService.Stop()
-		}
-		if r.xraySvc != nil {
-			if r.serverImpl != nil {
-				r.serverImpl.DisableAllXrayRouting()
-			}
-			logx.Infof("Stopping all Xray chains")
-			r.xraySvc.StopAll()
-		}
-		if r.resolver != nil {
-			r.resolver.Close()
-		}
+		logx.Infof("Stopping DNS service")
+		r.dnsService.Stop()
+
+		r.serverImpl.DisableAllXrayRouting()
+		logx.Infof("Stopping all Xray chains")
+		r.xraySvc.StopAll()
+
+		r.upstream.Close()
 	})
 }

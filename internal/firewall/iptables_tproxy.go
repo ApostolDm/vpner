@@ -83,6 +83,11 @@ func probeTProxyUserspace(f ipFamily) error {
 	}
 
 	if err := run(f.iptablesCmd, "-t", tableMangle, "-A", tproxyProbeChain,
+		"-p", "udp", "-m", "socket", "--transparent", "-j", "ACCEPT"); err != nil {
+		logx.Warnf("udp socket match unavailable (%s): established UDP flows will not survive ipset entry expiry: %v", f.iptablesCmd, err)
+	}
+
+	if err := run(f.iptablesCmd, "-t", tableMangle, "-A", tproxyProbeChain,
 		"-p", "tcp", "-j", "TPROXY", "--on-port", "1", "--tproxy-mark", tproxyMark); err != nil {
 		return fmt.Errorf("xt_TPROXY tcp target not supported: %w", err)
 	}
@@ -149,12 +154,18 @@ func cleanupGlobalSocketDivertRules(f ipFamily) {
 
 func ensureUDPSocketDivert(f ipFamily, existing map[string]bool, ifaces []string) {
 	for _, iface := range ifaces {
-		if existing[tproxySocketRuleSpecUDP(iface)] {
-			continue
-		}
-		if err := run(f.iptablesCmd, "-t", tableMangle, "-A", chainPrerouting,
+		hadRule := existing[tproxySocketRuleSpecUDP(iface)]
+		if err := runWithRetry(f.iptablesCmd, "-t", tableMangle, "-A", chainPrerouting,
 			"-i", iface, "-p", "udp", "-m", "socket", "--transparent", "-j", chainDivert); err != nil {
 			logx.Warnf("udp socket divert rule unavailable on %s (established UDP flows may drop on ipset expiry): %v", iface, err)
+			continue
+		}
+		if !hadRule {
+			continue
+		}
+		if err := runWithRetry(f.iptablesCmd, "-t", tableMangle, "-D", chainPrerouting,
+			"-i", iface, "-p", "udp", "-m", "socket", "--transparent", "-j", chainDivert); err != nil {
+			logx.Warnf("udp socket divert reorder failed on %s (duplicate rule left in place): %v", iface, err)
 		}
 	}
 }

@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 
 	grpcpb "github.com/ApostolDmitry/vpner/internal/grpc"
-	"github.com/ApostolDmitry/vpner/internal/tablefmt"
 )
 
 var interfaceCmd = &cobra.Command{
@@ -32,13 +31,11 @@ func interfaceListCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				table := tablefmt.Table{Headers: []string{"ID", "Type", "Description", "Status"}}
+				var rows [][]string
 				for _, iface := range resp.Interfaces {
-					table.Rows = append(table.Rows, []string{
-						iface.Id, iface.Type, iface.Description, iface.Status.String(),
-					})
+					rows = append(rows, []string{iface.Id, iface.Type, iface.Description, iface.Status.String()})
 				}
-				printTable(table)
+				printTable([]string{"ID", "Type", "Description", "Status"}, rows)
 				return nil
 			})
 		},
@@ -55,20 +52,14 @@ func interfaceScanCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				table := tablefmt.Table{Headers: []string{"ID", "Type", "Description", "Status", "Tracked"}}
 				sort.Slice(resp.Interfaces, func(i, j int) bool {
 					return resp.Interfaces[i].Id < resp.Interfaces[j].Id
 				})
+				var rows [][]string
 				for _, iface := range resp.Interfaces {
-					tracked := "no"
-					if iface.Added {
-						tracked = "yes"
-					}
-					table.Rows = append(table.Rows, []string{
-						iface.Id, iface.Type, iface.Description, iface.Status.String(), tracked,
-					})
+					rows = append(rows, []string{iface.Id, iface.Type, iface.Description, iface.Status.String(), yesNo(iface.Added)})
 				}
-				printTable(table)
+				printTable([]string{"ID", "Type", "Description", "Status", "Tracked"}, rows)
 				return nil
 			})
 		},

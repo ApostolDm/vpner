@@ -52,7 +52,7 @@ func updateCmd() *cobra.Command {
 			}
 			latest, ok := selfupdate.PickLatest(releases, prerelease)
 			if !ok {
-				return fmt.Errorf("no releases found for %s", firstNonEmpty(repo, selfupdate.DefaultRepo))
+				return fmt.Errorf("no releases found for %s", repo)
 			}
 
 			current := buildinfo.Version
@@ -114,7 +114,7 @@ func applyUpdate(ctx context.Context, client *http.Client, rel selfupdate.Releas
 	}
 
 	ipkPath := filepath.Join(os.TempDir(), asset.Name)
-	fmt.Printf("Downloading %s (%s)...\n", asset.Name, humanSize(asset.Size))
+	fmt.Printf("Downloading %s (%s)...\n", asset.Name, humanBytes(uint64(asset.Size)))
 	if err := downloadVerify(ctx, client, asset, ipkPath); err != nil {
 		return err
 	}
@@ -156,7 +156,7 @@ func updateCLIBinary(ctx context.Context, client *http.Client, rel selfupdate.Re
 		return fmt.Errorf("resolve current binary: %w", err)
 	}
 	tmp := self + ".new"
-	fmt.Printf("Downloading %s (%s)...\n", asset.Name, humanSize(asset.Size))
+	fmt.Printf("Downloading %s (%s)...\n", asset.Name, humanBytes(uint64(asset.Size)))
 	if err := downloadVerify(ctx, client, asset, tmp); err != nil {
 		return err
 	}
@@ -278,26 +278,4 @@ func restartService(ctx context.Context) {
 		fmt.Printf("WARNING: restart failed: %v\n%s\nStart it manually: %s start\n",
 			err, strings.TrimSpace(string(out)), updateInitScript)
 	}
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
-}
-
-func humanSize(n int64) string {
-	const unit = 1024
-	if n < unit {
-		return fmt.Sprintf("%d B", n)
-	}
-	div, exp := int64(unit), 0
-	for x := n / unit; x >= unit; x /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGT"[exp])
 }

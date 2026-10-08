@@ -145,19 +145,22 @@ func TestRefreshWindowBounds(t *testing.T) {
 	}
 }
 
-func TestLegacySweptOnlyAfterSuccess(t *testing.T) {
+func TestLegacySweepBeginsOnce(t *testing.T) {
 	t.Parallel()
 
 	r := NewIPSetRegistry()
-	if r.IsLegacySwept("vpnx_a") {
-		t.Fatal("must start unswept")
+	if !r.TryBeginLegacySweep("vpnx_a") {
+		t.Fatal("first attempt must win the sweep")
 	}
-	r.MarkLegacySwept("vpnx_a")
-	if !r.IsLegacySwept("vpnx_a") {
-		t.Fatal("must report swept after mark")
+	if r.TryBeginLegacySweep("vpnx_a") {
+		t.Fatal("second attempt on the same set must not start another sweep")
 	}
-	if r.IsLegacySwept("vpnx_b") {
+	if !r.TryBeginLegacySweep("vpnx_b") {
 		t.Fatal("different set must be independent")
+	}
+	r.ResetLegacySweep("vpnx_a")
+	if !r.TryBeginLegacySweep("vpnx_a") {
+		t.Fatal("a failed sweep must be retryable after reset")
 	}
 }
 

@@ -49,39 +49,15 @@ var (
 	errIpsetNotSupported = fmt.Errorf("ipset version must be >= %s", minIpsetVersion)
 )
 
-type Params struct {
-	HashFamily   string
-	HashSize     int
-	MaxElem      int
-	Timeout      int
-	WithComments bool
-}
+const (
+	ipsetHashSize = 1024
+	ipsetMaxElem  = 65536
+)
 
 type IPSet struct {
-	Name         string
-	HashType     string
-	HashFamily   string
-	HashSize     int
-	MaxElem      int
-	Timeout      int
-	WithComments bool
-}
-
-func normalizeParams(p *Params) Params {
-	if p == nil {
-		return Params{HashFamily: "inet", HashSize: 1024, MaxElem: 65536}
-	}
-	cfg := *p
-	if cfg.HashSize == 0 {
-		cfg.HashSize = 1024
-	}
-	if cfg.MaxElem == 0 {
-		cfg.MaxElem = 65536
-	}
-	if cfg.HashFamily == "" {
-		cfg.HashFamily = "inet"
-	}
-	return cfg
+	Name    string
+	Family  string
+	Timeout int
 }
 
 func initCheck() error {
@@ -109,57 +85,36 @@ func ipsetPresent(name string) bool {
 	return exec.Command(ipsetPath, "-q", "-t", "list", name).Run() == nil
 }
 
-func (s *IPSet) createHashSet(name string) error {
-	exists := ipsetPresent(name)
-	if !exists {
-		args := []string{
-			"-exist",
-			"create", name, s.HashType,
-			"family", s.HashFamily,
-			"hashsize", strconv.Itoa(s.HashSize),
-			"maxelem", strconv.Itoa(s.MaxElem),
-		}
-		if s.Timeout > 0 {
-			args = append(args, "timeout", strconv.Itoa(s.Timeout))
-		}
-		if s.WithComments {
-			args = append(args, "comment")
-		}
-		out, err := exec.Command(ipsetPath, args...).CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("failed to create ipset %s: %v (%s)", name, err, out)
-		}
-		return nil
-	}
-	return ensureSetProperties(name, s)
-}
-
-func NewIPset(name, hashtype string, p *Params) (*IPSet, error) {
+func EnsureIPSet(name, family string, timeout int) (*IPSet, error) {
 	if err := initCheck(); err != nil {
 		return nil, err
 	}
-
-	if !strings.HasPrefix(hashtype, "hash:") {
-		return nil, fmt.Errorf("unsupported ipset type: %s", hashtype)
+	if family == "" {
+		family = "inet"
 	}
-
-	cfg := normalizeParams(p)
-
-	s := &IPSet{
-		Name:         name,
-		HashType:     hashtype,
-		HashFamily:   cfg.HashFamily,
-		HashSize:     cfg.HashSize,
-		MaxElem:      cfg.MaxElem,
-		Timeout:      cfg.Timeout,
-		WithComments: cfg.WithComments,
+	s := &IPSet{Name: name, Family: family, Timeout: timeout}
+	if ipsetPresent(name) {
+		return s, ensureSetProperties(name, s)
 	}
+	return s, createSet(name, s)
+}
 
-	if err := s.createHashSet(name); err != nil {
-		return nil, err
+func createSet(name string, s *IPSet) error {
+	args := []string{
+		"-exist",
+		"create", name, "hash:net",
+		"family", s.Family,
+		"hashsize", strconv.Itoa(ipsetHashSize),
+		"maxelem", strconv.Itoa(ipsetMaxElem),
 	}
-
-	return s, nil
+	if s.Timeout > 0 {
+		args = append(args, "timeout", strconv.Itoa(s.Timeout))
+	}
+	args = append(args, "comment")
+	if out, err := exec.Command(ipsetPath, args...).CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to create ipset %s: %v (%s)", name, err, out)
+	}
+	return nil
 }
 
 func (s *IPSet) timeoutArgs(timeout int) []string {
@@ -255,38 +210,6 @@ func IPSetExists(name string) bool {
 	return ipsetPresent(name)
 }
 
-func EnsureIPSet(name, hashtype string, p *Params) error {
-	if err := initCheck(); err != nil {
-		return err
-	}
-	if !strings.HasPrefix(hashtype, "hash:") {
-		return fmt.Errorf("unsupported ipset type: %s", hashtype)
-	}
-	cfg := normalizeParams(p)
-	if ipsetPresent(name) {
-		stub := &IPSet{Name: name, HashType: hashtype, HashFamily: cfg.HashFamily, HashSize: cfg.HashSize, MaxElem: cfg.MaxElem, Timeout: cfg.Timeout, WithComments: cfg.WithComments}
-		return ensureSetProperties(name, stub)
-	}
-
-	args := []string{
-		"-exist",
-		"create", name, hashtype,
-		"family", cfg.HashFamily,
-		"hashsize", strconv.Itoa(cfg.HashSize),
-		"maxelem", strconv.Itoa(cfg.MaxElem),
-	}
-	if cfg.Timeout > 0 {
-		args = append(args, "timeout", strconv.Itoa(cfg.Timeout))
-	}
-	if cfg.WithComments {
-		args = append(args, "comment")
-	}
-	if out, err := exec.Command(ipsetPath, args...).CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to ensure ipset %s: %v (%s)", name, err, out)
-	}
-	return nil
-}
-
 func getIpsetSupportedVersion() (bool, error) {
 	vstring, err := getIpsetVersionString()
 	if err != nil {
@@ -326,9 +249,6 @@ func compareVersions(v1, v2 string) int {
 }
 
 func ensureSetProperties(name string, set *IPSet) error {
-	if set.Timeout <= 0 && !set.WithComments {
-		return nil
-	}
 	header, err := exec.Command(ipsetPath, "-t", "list", name).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to inspect ipset %s: %v (%s)", name, err, header)
@@ -347,7 +267,7 @@ func ensureSetProperties(name string, set *IPSet) error {
 	} else if hasTimeout && timeoutValue > 0 {
 		needRecreate = true
 	}
-	if set.WithComments && !hasComment {
+	if !hasComment {
 		needRecreate = true
 	}
 	if !needRecreate {
@@ -420,7 +340,7 @@ func parseTimeoutValue(line string) (int, bool) {
 
 func recreateIPSetWithSwap(name string, set *IPSet, entries []string) error {
 	temp := tempSetName(name, "-tmp")
-	if err := set.createHashSet(temp); err != nil {
+	if err := createSet(temp, set); err != nil {
 		return err
 	}
 

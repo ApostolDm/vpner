@@ -57,8 +57,8 @@ func NewUpstream(cfg conf.UpstreamConfig) *Upstream {
 		TLSHandshakeTimeout:   secs(cfg.TLSHandshakeTimeout),
 		ResponseHeaderTimeout: secs(cfg.ResponseHeaderTimeout),
 		ExpectContinueTimeout: time.Second,
-		MaxIdleConns:          128,
-		MaxIdleConnsPerHost:   64,
+		MaxIdleConns:          8,
+		MaxIdleConnsPerHost:   2,
 		IdleConnTimeout:       90 * time.Second,
 	}
 	if cfg.InsecureSkipVerify {
@@ -119,7 +119,7 @@ func normalizeConfig(cfg conf.UpstreamConfig) conf.UpstreamConfig {
 	setDefault(&cfg.BootstrapTimeout, 3)
 	setDefault(&cfg.MaxCacheEntries, 2048)
 	setDefault(&cfg.CleanupInterval, 60)
-	setDefault(&cfg.MaxConcurrentRequests, 256)
+	setDefault(&cfg.MaxConcurrentRequests, 64)
 
 	cfg.Servers = trimNonEmpty(cfg.Servers)
 	cfg.Resolvers = trimNonEmpty(cfg.Resolvers)

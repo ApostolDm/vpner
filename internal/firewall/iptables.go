@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ApostolDmitry/vpner/internal/logx"
 	"github.com/ApostolDmitry/vpner/internal/vpnkind"
@@ -70,6 +71,9 @@ type IptablesManager struct {
 	entryTimeout  int
 	exceptionsV4  []string
 	exceptionsV6  []string
+	lanIfaces     []string
+	connmarkV4    *bool
+	connmarkV6    *bool
 }
 
 type ChainSpec struct {
@@ -129,14 +133,34 @@ func tryRun(name string, args ...string) {
 	}
 }
 
+const runRetryAttempts = 3
+
+func runWithRetry(name string, args ...string) error {
+	var err error
+	delay := 100 * time.Millisecond
+	for attempt := 0; attempt < runRetryAttempts; attempt++ {
+		if err = run(name, args...); err == nil {
+			return nil
+		}
+		if attempt < runRetryAttempts-1 {
+			time.Sleep(delay)
+			delay *= 3
+		}
+	}
+	return err
+}
+
 func commandExists(cmd string) bool {
 	_, err := exec.LookPath(cmd)
 	return err == nil
 }
 
-func NewIptablesManager(ipv6Enabled, tproxyEnabled bool, ipsetEntryTimeout int, localExceptions []string) *IptablesManager {
+func NewIptablesManager(ipv6Enabled, tproxyEnabled bool, ipsetEntryTimeout int, localExceptions, lanIfaces []string) *IptablesManager {
 	if ipsetEntryTimeout < 0 {
 		ipsetEntryTimeout = 0
+	}
+	if len(lanIfaces) == 0 {
+		lanIfaces = []string{"br0"}
 	}
 	v4, v6 := resolveLocalExceptions(localExceptions)
 	return &IptablesManager{
@@ -147,6 +171,7 @@ func NewIptablesManager(ipv6Enabled, tproxyEnabled bool, ipsetEntryTimeout int, 
 		entryTimeout:  ipsetEntryTimeout,
 		exceptionsV4:  v4,
 		exceptionsV6:  v6,
+		lanIfaces:     lanIfaces,
 	}
 }
 

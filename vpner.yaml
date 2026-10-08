@@ -30,6 +30,15 @@ grpc:
 
 unblock-rules-path: "/opt/etc/vpner/vpner_unblock.yaml"
 
+# Go runtime tuning for low-RAM routers. memory-limit-mb is a soft heap limit:
+# the GC works harder and returns memory to the OS as the daemon approaches it
+# (0 = default 64, -1 = leave the Go default of "unlimited"). gc-percent trades
+# CPU for a smaller heap (0 = default 50, -1 = Go default 100). Environment
+# variables GOMEMLIMIT / GOGC, when set, take precedence over these keys.
+runtime:
+  memory-limit-mb: 64
+  gc-percent: 50
+
 network:
   lan-interfaces:
     - "br0"
@@ -42,6 +51,21 @@ network:
   # ones age out automatically. 0 = default (3600), minimum 60,
   # -1 = legacy mode (reactive deletion driven by ipset-stale-queries).
   ipset-entry-timeout: 3600
+  # Keep actively-used entries alive: the daemon periodically re-arms the
+  # kernel timer of near-expiry entries that still have live conntrack flows,
+  # so long sessions (voice calls, websockets, downloads) never lose their
+  # route mid-flight while idle entries still age out. Only active when
+  # ipset-entry-timeout > 0. Self-disables if conntrack is unreadable.
+  # ipset-keepalive: true
+  # Seconds between keepalive sweeps. 0 = auto: ipset-entry-timeout / 6,
+  # clamped to 30..300.
+  # ipset-keepalive-interval: 0
+  # Cap the DNS TTLs returned to clients for routed domains so they re-query
+  # (and thereby refresh the ipset entry) before it can expire.
+  # 0 = auto (cap at ipset-entry-timeout minus the refresh window, e.g. 3300
+  # for the 3600 default), -1 = off (relay upstream TTLs unmodified),
+  # N = explicit cap in seconds. Only affects matched domains.
+  # clamp-dns-ttl: 0
   # Destination ranges that are NEVER routed into a VPN/proxy (they get an
   # early RETURN in the mangle/nat chains). By default this is the full set of
   # private/link-local/multicast ranges below, which also blocks routing any

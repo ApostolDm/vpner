@@ -26,6 +26,7 @@ type RuleRuntimeOptions struct {
 	IPSetDebug        bool
 	IPSetStaleQueries int
 	IPSetEntryTimeout int
+	DNSTTLClamp       int
 }
 
 type IpRuleManager struct {
@@ -35,6 +36,7 @@ type IpRuleManager struct {
 	ipsetDebug        bool
 	ipsetStaleQueries int
 	entryTimeout      int
+	dnsTTLClamp       int
 }
 
 const (
@@ -54,6 +56,10 @@ func NewIpRuleManager(matcher DomainRuleMatcher, opts RuleRuntimeOptions, regist
 	if entryTimeout > 0 {
 		warnIfTimeoutRefreshUnsupported()
 	}
+	dnsTTLClamp := opts.DNSTTLClamp
+	if dnsTTLClamp < 0 {
+		dnsTTLClamp = 0
+	}
 	return &IpRuleManager{
 		matcher:           matcher,
 		registry:          registry,
@@ -61,7 +67,22 @@ func NewIpRuleManager(matcher DomainRuleMatcher, opts RuleRuntimeOptions, regist
 		ipsetDebug:        opts.IPSetDebug,
 		ipsetStaleQueries: opts.IPSetStaleQueries,
 		entryTimeout:      entryTimeout,
+		dnsTTLClamp:       dnsTTLClamp,
 	}
+}
+
+func (m *IpRuleManager) ClampTTL(domain string) int {
+	if m == nil || m.matcher == nil || m.dnsTTLClamp <= 0 {
+		return 0
+	}
+	if _, _, _, ok := m.matcher.MatchDomain(domain); !ok {
+		return 0
+	}
+	return m.dnsTTLClamp
+}
+
+func (m *IpRuleManager) AsyncSync() bool {
+	return m != nil && m.entryTimeout <= 0
 }
 
 func (m *IpRuleManager) DropAAAA(domain string) bool {
@@ -95,6 +116,7 @@ func (m *IpRuleManager) ResyncAnswers(domain string, ips []net.IP) error {
 }
 
 func (m *IpRuleManager) fastAddFamilies(vpnType, chainName, rule, domain string, ips []net.IP, force bool) error {
+	m.kickLegacySweeps(vpnType, chainName)
 	var errs []error
 	if v4 := filterIPs(ips, false); len(v4) > 0 {
 		if err := m.fastAdd(vpnType, chainName, rule, domain, v4, false, force); err != nil {
@@ -145,6 +167,33 @@ func (m *IpRuleManager) fastAdd(vpnType, chainName, rule, domain string, resolve
 	}
 	m.registry.MarkRefreshed(throttleKey, fingerprint, window)
 	return nil
+}
+
+func (m *IpRuleManager) kickLegacySweeps(vpnType, chainName string) {
+	if m.entryTimeout <= 0 {
+		return
+	}
+	families := []bool{false}
+	if m.ipv6Enabled {
+		families = append(families, true)
+	}
+	for _, ipv6 := range families {
+		ipsetName, _, err := ipsetNameForFamily(vpnType, chainName, ipv6)
+		if err != nil {
+			continue
+		}
+		if m.registry.TryBeginLegacySweep(ipsetName) {
+			go m.sweepLegacyEntriesAsync(ipsetName)
+		}
+	}
+}
+
+func (m *IpRuleManager) sweepLegacyEntriesAsync(ipsetName string) {
+	defer logx.Recover("legacy ipset sweep " + ipsetName)
+	if err := m.sweepLegacyEntries(ipsetName); err != nil {
+		m.registry.ResetLegacySweep(ipsetName)
+		logx.Warnf("legacy sweep %s (will retry on next answer): %v", ipsetName, err)
+	}
 }
 
 func (m *IpRuleManager) obtainSet(ipsetName, family string, ensureKernel bool) (*IPSet, error) {
@@ -203,12 +252,7 @@ func (m *IpRuleManager) SyncFromAnswers(domain string, ips []net.IP) error {
 	}
 
 	if m.entryTimeout > 0 {
-		errs := []error{m.fastAddFamilies(vpnType, chainName, rule, domain, ips, false)}
-		errs = append(errs, m.sweepLegacyEntries(vpnType, chainName, false))
-		if m.ipv6Enabled {
-			errs = append(errs, m.sweepLegacyEntries(vpnType, chainName, true))
-		}
-		return errors.Join(errs...)
+		return nil
 	}
 
 	v4 := filterIPs(ips, false)
@@ -228,15 +272,7 @@ func (m *IpRuleManager) SyncFromAnswers(domain string, ips []net.IP) error {
 	return nil
 }
 
-func (m *IpRuleManager) sweepLegacyEntries(vpnType, chainName string, ipv6 bool) error {
-	ipsetName, _, err := ipsetNameForFamily(vpnType, chainName, ipv6)
-	if err != nil {
-		return err
-	}
-	if m.registry.IsLegacySwept(ipsetName) {
-		return nil
-	}
-
+func (m *IpRuleManager) sweepLegacyEntries(ipsetName string) error {
 	unlock := m.registry.LockSet(ipsetName)
 	defer unlock()
 
@@ -256,11 +292,7 @@ func (m *IpRuleManager) sweepLegacyEntries(vpnType, chainName string, ipv6 bool)
 			logx.Infof("ipset del: set=%s entry=%s reason=legacy-comment-sweep", ipsetName, entry)
 		}
 	}
-	if err := removeEntries(ipsetName, legacy); err != nil {
-		return err
-	}
-	m.registry.MarkLegacySwept(ipsetName)
-	return nil
+	return removeEntries(ipsetName, legacy)
 }
 
 func cleanupDomainEntries(registry *IPSetRegistry, vpnType, chainName, pattern string, ipv6Enabled bool, ipsetDebug bool) error {

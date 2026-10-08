@@ -172,19 +172,3 @@ func TestAnswerCacheExpires(t *testing.T) {
 		t.Fatal("expired entry must miss")
 	}
 }
-
-func TestRateLimiterBurstThenLimit(t *testing.T) {
-	l := newRateLimiter(5)
-	allowed := 0
-	for i := 0; i < 30; i++ {
-		if l.allow("1.2.3.4") {
-			allowed++
-		}
-	}
-	if allowed < 5 || allowed > 12 {
-		t.Fatalf("expected ~burst(10) allowances, got %d", allowed)
-	}
-	if !l.allow("5.6.7.8") {
-		t.Fatal("a fresh source IP must start with a full bucket")
-	}
-}

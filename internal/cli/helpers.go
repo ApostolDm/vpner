@@ -6,24 +6,17 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"text/tabwriter"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	grpcpb "github.com/ApostolDmitry/vpner/internal/grpc"
-	"github.com/ApostolDmitry/vpner/internal/tablefmt"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
 )
 
-func emitJSON(m proto.Message) error {
-	data, err := protojson.MarshalOptions{Multiline: true, Indent: "  ", EmitDefaultValues: true}.Marshal(m)
-	if err != nil {
-		return err
-	}
-	fmt.Println(string(data))
-	return nil
-}
-
 var rpcTimeout = 120 * time.Second
+
+func noDial(*cobra.Command, []string) error { return nil }
 
 func withClient(fn func(ctx context.Context, c grpcpb.VpnerManagerClient) error) error {
 	if rt == nil {
@@ -89,10 +82,28 @@ func handleGenericResponse(resp *grpcpb.GenericResponse, quiet bool) error {
 	return nil
 }
 
-func printTable(tbl tablefmt.Table) {
-	if len(tbl.Rows) == 0 {
+func printTable(headers []string, rows [][]string) {
+	if len(rows) == 0 {
 		fmt.Println("No data")
 		return
 	}
-	tbl.Print()
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, strings.Join(headers, "\t"))
+	for _, row := range rows {
+		fmt.Fprintln(w, strings.Join(row, "\t"))
+	}
+	w.Flush()
+}
+
+func humanBytes(n uint64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := uint64(unit), 0
+	for x := n / unit; x >= unit; x /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGT"[exp])
 }

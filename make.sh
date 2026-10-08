@@ -149,9 +149,8 @@ CMD=/opt/etc/vpner/vpnerd
 CFG=/opt/etc/vpner/vpner.yaml
 PIDFILE=/opt/var/run/vpnerd.pid
 CRASHLOG=/opt/var/log/vpnerd.crash.log
-# vpnerd logs to syslog (the Keenetic system journal, tag [VPNER]) by default.
+# vpnerd logs to syslog (the Keenetic system journal, tag [VPNER]).
 # CRASHLOG only receives panics and errors emitted before logging comes up.
-# Pass --log-file to ARGS instead to switch to a rotated local file.
 ARGS="--config $CFG"
 PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 

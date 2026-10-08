@@ -3,6 +3,7 @@ package firewall
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/ApostolDmitry/vpner/internal/logx"
 	"github.com/ApostolDmitry/vpner/internal/vpnkind"
@@ -106,7 +107,7 @@ func (i *IptablesManager) addRulesForFamily(f ipFamily, routing map[string]vpnRo
 				tryRun("ip", append(f.ipFlags, "route", "flush", "table", fmt.Sprintf("%d", tableID))...)
 			}
 		}
-		if err := addMarkRules(f, chainName, ipsetName, mark, iface, i.exceptionsFor(f)); err != nil {
+		if err := i.addMarkRules(f, chainName, ipsetName, mark, iface, i.exceptionsFor(f)); err != nil {
 			rollback(false)
 			return err
 		}
@@ -366,13 +367,73 @@ func addReturnCIDRs(b *iptablesBatch, chainName, iface string, cidrs []string) {
 	}
 }
 
-func addMarkRules(f ipFamily, chainName, ipsetName string, mark int, iface string, exceptions []string) error {
-	if err := commitMarkRules(f, chainName, ipsetName, mark, iface, true, exceptions); err == nil {
-		return nil
-	} else {
-		logx.Warnf("CONNMARK rules rejected for %s, falling back to plain marking (established flows will not survive ipset changes): %v", chainName, err)
+const connmarkProbeChain = "VPN_CONNMARK_PROBE"
+
+func probeConnmarkSupport(f ipFamily) (supported, conclusive bool) {
+	tryRun(f.iptablesCmd, "-t", tableMangle, "-F", connmarkProbeChain)
+	tryRun(f.iptablesCmd, "-t", tableMangle, "-X", connmarkProbeChain)
+
+	if err := runWithRetry(f.iptablesCmd, "-t", tableMangle, "-N", connmarkProbeChain); err != nil {
+		return false, false
 	}
-	return commitMarkRules(f, chainName, ipsetName, mark, iface, false, exceptions)
+	defer func() {
+		tryRun(f.iptablesCmd, "-t", tableMangle, "-F", connmarkProbeChain)
+		tryRun(f.iptablesCmd, "-t", tableMangle, "-X", connmarkProbeChain)
+	}()
+
+	if err := runWithRetry(f.iptablesCmd, "-t", tableMangle, "-A", connmarkProbeChain,
+		"-j", "CONNMARK", "--restore-mark", "--nfmask", vpnerMarkMask, "--ctmask", vpnerMarkMask); err != nil {
+		return false, true
+	}
+	if err := runWithRetry(f.iptablesCmd, "-t", tableMangle, "-A", connmarkProbeChain,
+		"-m", "mark", "!", "--mark", "0/"+vpnerMarkMask, "-j", "RETURN"); err != nil {
+		return false, true
+	}
+	if err := runWithRetry(f.iptablesCmd, "-t", tableMangle, "-A", connmarkProbeChain,
+		"-m", "mark", "--mark", "1", "-j", "CONNMARK", "--save-mark", "--nfmask", vpnerMarkMask, "--ctmask", vpnerMarkMask); err != nil {
+		return false, true
+	}
+	return true, true
+}
+
+func (i *IptablesManager) connmarkSupported(f ipFamily) bool {
+	cached := &i.connmarkV4
+	if f.iptablesCmd == familyV6.iptablesCmd {
+		cached = &i.connmarkV6
+	}
+	if *cached != nil {
+		return **cached
+	}
+	supported, conclusive := probeConnmarkSupport(f)
+	if !conclusive {
+		logx.Warnf("CONNMARK probe inconclusive (%s); using plain marking until the next probe", f.iptablesCmd)
+		return false
+	}
+	if !supported {
+		logx.Errorf("CONNMARK unsupported (%s): established flows will not survive ipset entry expiry; using plain marking", f.iptablesCmd)
+	}
+	*cached = &supported
+	return supported
+}
+
+func (i *IptablesManager) addMarkRules(f ipFamily, chainName, ipsetName string, mark int, iface string, exceptions []string) error {
+	if !i.connmarkSupported(f) {
+		return commitMarkRules(f, chainName, ipsetName, mark, iface, false, exceptions)
+	}
+
+	var err error
+	delay := 100 * time.Millisecond
+	for attempt := 0; attempt < runRetryAttempts; attempt++ {
+		if err = commitMarkRules(f, chainName, ipsetName, mark, iface, true, exceptions); err == nil {
+			return nil
+		}
+		if attempt < runRetryAttempts-1 {
+			time.Sleep(delay)
+			delay *= 3
+		}
+	}
+	logx.Errorf("CONNMARK rules failed for %s after %d attempts: %v", chainName, runRetryAttempts, err)
+	return err
 }
 
 const vpnerMarkMask = "0x1fff"
@@ -419,11 +480,6 @@ const (
 )
 
 func markTableSpan() int { return markTableMax - markTableMin + 1 }
-
-func markAndTableFromIPSet(ipsetName string) (mark int, tableID int) {
-	id := seededMarkID(checksumIPSetName(ipsetName))
-	return id, id
-}
 
 func seededMarkID(seed uint32) int {
 	id := int(seed%uint32(markTableSpan())) + markTableMin

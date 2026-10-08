@@ -18,7 +18,6 @@ type ServerConfig struct {
 	CustomResolveTimeout int                 `yaml:"custom-resolve-timeout"`
 	Cache                *bool               `yaml:"cache"`
 	CacheMaxEntries      int                 `yaml:"cache-max-entries"`
-	RateLimit            int                 `yaml:"rate-limit"`
 	Running              bool                `yaml:"running"`
 }
 
@@ -70,15 +69,23 @@ type GRPCConfig struct {
 }
 
 type NetworkConfig struct {
-	LANInterface      string   `yaml:"lan-interface"`
-	LANInterfaces     []string `yaml:"lan-interfaces"`
-	EnableIPv6        bool     `yaml:"enable-ipv6"`
-	EnableTProxy      bool     `yaml:"enable-tproxy"`
-	IPSetDebug        bool     `yaml:"ipset-debug"`
-	IPSetStaleQueries int      `yaml:"ipset-stale-queries"`
-	IPSetEntryTimeout int      `yaml:"ipset-entry-timeout"`
-	ReconcileInterval int      `yaml:"reconcile-interval"`
-	LocalExceptions   []string `yaml:"local-exceptions"`
+	LANInterface           string   `yaml:"lan-interface"`
+	LANInterfaces          []string `yaml:"lan-interfaces"`
+	EnableIPv6             bool     `yaml:"enable-ipv6"`
+	EnableTProxy           bool     `yaml:"enable-tproxy"`
+	IPSetDebug             bool     `yaml:"ipset-debug"`
+	IPSetStaleQueries      int      `yaml:"ipset-stale-queries"`
+	IPSetEntryTimeout      int      `yaml:"ipset-entry-timeout"`
+	IPSetKeepalive         *bool    `yaml:"ipset-keepalive"`
+	IPSetKeepaliveInterval int      `yaml:"ipset-keepalive-interval"`
+	ClampDNSTTL            int      `yaml:"clamp-dns-ttl"`
+	ReconcileInterval      int      `yaml:"reconcile-interval"`
+	LocalExceptions        []string `yaml:"local-exceptions"`
+}
+
+type RuntimeConfig struct {
+	MemoryLimitMB int `yaml:"memory-limit-mb"`
+	GCPercent     int `yaml:"gc-percent"`
 }
 
 type FullConfig struct {
@@ -87,9 +94,10 @@ type FullConfig struct {
 	DoH              UpstreamConfig `yaml:"doh"`
 	UnblockRulesPath string         `yaml:"unblock-rules-path"`
 	Network          NetworkConfig  `yaml:"network"`
+	Runtime          RuntimeConfig  `yaml:"runtime"`
 }
 
-func LoadStrict(path string) error {
+func CheckKnownFields(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("failed to read config: %w", err)
@@ -98,7 +106,7 @@ func LoadStrict(path string) error {
 	dec.KnownFields(true)
 	var cfg FullConfig
 	if err := dec.Decode(&cfg); err != nil {
-		return fmt.Errorf("invalid config: %w", err)
+		return fmt.Errorf("unknown or invalid keys (ignored): %w", err)
 	}
 	return nil
 }
@@ -141,8 +149,40 @@ func LoadFullConfig(path string) (*FullConfig, error) {
 	case cfg.Network.IPSetEntryTimeout < 60:
 		cfg.Network.IPSetEntryTimeout = 60
 	}
+	if cfg.Network.IPSetKeepaliveInterval < 0 {
+		cfg.Network.IPSetKeepaliveInterval = 0
+	}
+	switch {
+	case cfg.Network.ClampDNSTTL == 0:
+		cfg.Network.ClampDNSTTL = autoClampTTL(cfg.Network.IPSetEntryTimeout)
+	case cfg.Network.ClampDNSTTL < 0:
+		cfg.Network.ClampDNSTTL = 0
+	}
+	if cfg.Runtime.MemoryLimitMB == 0 {
+		cfg.Runtime.MemoryLimitMB = 64
+	}
+	if cfg.Runtime.GCPercent == 0 {
+		cfg.Runtime.GCPercent = 50
+	}
 
 	return &cfg, nil
+}
+
+func autoClampTTL(entryTimeout int) int {
+	if entryTimeout <= 0 {
+		return 0
+	}
+	window := entryTimeout / 4
+	if window < 30 {
+		window = 30
+	}
+	if window > 300 {
+		window = 300
+	}
+	if window > entryTimeout/2 {
+		window = entryTimeout / 2
+	}
+	return entryTimeout - window
 }
 
 func normalizeInterfaces(list []string, fallback string) []string {

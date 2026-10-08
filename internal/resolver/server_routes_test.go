@@ -114,6 +114,61 @@ func TestCacheHitProgramsRouteBeforeReply(t *testing.T) {
 	}
 }
 
+type clampSyncer struct {
+	recordingSyncer
+	clamp   int
+	matched string
+}
+
+func (c *clampSyncer) ClampTTL(domain string) int {
+	if domain != c.matched {
+		return 0
+	}
+	return c.clamp
+}
+
+func TestMaybeClampTTL(t *testing.T) {
+	t.Parallel()
+
+	syncer := &clampSyncer{clamp: 120, matched: "blocked.example.com"}
+	s := newTestServer(syncer)
+
+	msg := buildCachedAnswer("blocked.example.com", "203.0.113.9")
+	opt := new(dns.OPT)
+	opt.Hdr.Name = "."
+	opt.Hdr.Rrtype = dns.TypeOPT
+	opt.Hdr.Ttl = 4096
+	msg.Extra = append(msg.Extra, opt)
+
+	s.maybeClampTTL("blocked.example.com", msg)
+	if got := msg.Answer[0].Header().Ttl; got != 120 {
+		t.Fatalf("matched domain TTL must be clamped to 120, got %d", got)
+	}
+	if got := msg.Extra[0].Header().Ttl; got != 4096 {
+		t.Fatalf("OPT pseudo-record must not be touched, got %d", got)
+	}
+
+	other := buildCachedAnswer("other.example.com", "203.0.113.10")
+	s.maybeClampTTL("other.example.com", other)
+	if got := other.Answer[0].Header().Ttl; got != 300 {
+		t.Fatalf("unmatched domain TTL must stay 300, got %d", got)
+	}
+
+	short := buildCachedAnswer("blocked.example.com", "203.0.113.9")
+	short.Answer[0].Header().Ttl = 60
+	s.maybeClampTTL("blocked.example.com", short)
+	if got := short.Answer[0].Header().Ttl; got != 60 {
+		t.Fatalf("TTL below the clamp must stay unchanged, got %d", got)
+	}
+
+	plain := newTestServer(&recordingSyncer{})
+	unclamped := buildCachedAnswer("blocked.example.com", "203.0.113.9")
+	plain.maybeClampTTL("blocked.example.com", unclamped)
+	if got := unclamped.Answer[0].Header().Ttl; got != 300 {
+		t.Fatalf("syncer without ClampTTL must leave TTLs untouched, got %d", got)
+	}
+}
+
 func TestCacheStoresUnstrippedAnswer(t *testing.T) {
 	t.Parallel()
 

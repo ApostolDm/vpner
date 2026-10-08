@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 
@@ -80,20 +81,64 @@ func (v *VPNRulesConfig) Clone() *VPNRulesConfig {
 type UnblockManager struct {
 	FilePath          string
 	cachedConf        *VPNRulesConfig
+	index             *ruleIndex
 	registry          *IPSetRegistry
 	mu                sync.RWMutex
 	ipv6Enabled       bool
 	ipsetDebug        bool
 	ipsetStaleQueries int
 	ipsetEntryTimeout int
+	dnsTTLClamp       int
 }
 
-func NewUnblockManager(path string, ipv6Enabled bool, ipsetDebug bool, ipsetStaleQueries, ipsetEntryTimeout int, registry *IPSetRegistry) *UnblockManager {
+type ruleIndex struct {
+	exact map[string]ruleRef
+	wild  []ruleRef
+}
+
+func buildRuleIndex(conf *VPNRulesConfig) *ruleIndex {
+	idx := &ruleIndex{exact: make(map[string]ruleRef)}
+	if conf == nil {
+		return idx
+	}
+	for vpnType, set := range conf.Rules {
+		for chain, rules := range set {
+			for _, pattern := range rules {
+				ref := ruleRef{vpnType: vpnType, chain: chain, value: pattern}
+				if strings.Contains(pattern, "*") {
+					idx.wild = append(idx.wild, ref)
+				} else {
+					idx.exact[pattern] = ref
+				}
+			}
+		}
+	}
+	sort.Slice(idx.wild, func(i, j int) bool {
+		a, b := idx.wild[i], idx.wild[j]
+		if a.vpnType != b.vpnType {
+			return a.vpnType < b.vpnType
+		}
+		if a.chain != b.chain {
+			return a.chain < b.chain
+		}
+		return a.value < b.value
+	})
+	return idx
+}
+
+func (m *UnblockManager) rebuildIndexLocked() {
+	m.index = buildRuleIndex(m.cachedConf)
+}
+
+func NewUnblockManager(path string, ipv6Enabled bool, ipsetDebug bool, ipsetStaleQueries, ipsetEntryTimeout, dnsTTLClamp int, registry *IPSetRegistry) *UnblockManager {
 	if path == "" {
 		path = defaultRulesFile
 	}
 	if ipsetEntryTimeout < 0 {
 		ipsetEntryTimeout = 0
+	}
+	if dnsTTLClamp < 0 {
+		dnsTTLClamp = 0
 	}
 	if registry == nil {
 		registry = NewIPSetRegistry()
@@ -107,6 +152,8 @@ func NewUnblockManager(path string, ipv6Enabled bool, ipsetDebug bool, ipsetStal
 		ipsetDebug:        ipsetDebug,
 		ipsetStaleQueries: ipsetStaleQueries,
 		ipsetEntryTimeout: ipsetEntryTimeout,
+		dnsTTLClamp:       dnsTTLClamp,
+		index:             buildRuleIndex(nil),
 	}
 }
 
@@ -115,11 +162,12 @@ func (m *UnblockManager) Init() error {
 	if err != nil {
 		return err
 	}
+	m.mu.Lock()
 	if data != nil {
-		m.mu.Lock()
 		m.cachedConf = data
-		m.mu.Unlock()
 	}
+	m.rebuildIndexLocked()
+	m.mu.Unlock()
 	return m.restoreStaticRules()
 }
 
@@ -154,18 +202,77 @@ func (m *UnblockManager) writeConfig() error {
 	return nil
 }
 
+type RuleGroup struct {
+	TypeName  string
+	ChainName string
+	Rules     []string
+}
+
+func (m *UnblockManager) Groups() []RuleGroup {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var out []RuleGroup
+	for vpnType, set := range m.cachedConf.Rules {
+		for chain, rules := range set {
+			out = append(out, RuleGroup{TypeName: vpnType, ChainName: chain, Rules: append([]string(nil), rules...)})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].TypeName != out[j].TypeName {
+			return out[i].TypeName < out[j].TypeName
+		}
+		return out[i].ChainName < out[j].ChainName
+	})
+	return out
+}
+
+func (m *UnblockManager) RuntimeOptions() RuleRuntimeOptions {
+	return RuleRuntimeOptions{
+		IPv6Enabled:       m.ipv6Enabled,
+		IPSetDebug:        m.ipsetDebug,
+		IPSetStaleQueries: m.ipsetStaleQueries,
+		IPSetEntryTimeout: m.ipsetEntryTimeout,
+		DNSTTLClamp:       m.dnsTTLClamp,
+	}
+}
+
+func (m *UnblockManager) findOverlapLocked(pattern string) (typ, chain, existing string, found bool) {
+	for typ, set := range m.cachedConf.Rules {
+		for chain, rules := range set {
+			for _, existing := range rules {
+				if matcher.Overlap(existing, pattern) {
+					return typ, chain, existing, true
+				}
+			}
+		}
+	}
+	return "", "", "", false
+}
+
 func (m *UnblockManager) AddRule(vpnType, chainName, pattern string) error {
+	if chainName == "" {
+		return fmt.Errorf("chain name is required")
+	}
+	if err := matcher.Validate(pattern); err != nil {
+		return fmt.Errorf("invalid pattern: %w", err)
+	}
 	if isStaticPattern(pattern) && isIPv6Pattern(pattern) && !m.ipv6Enabled {
 		return fmt.Errorf("ipv6 support is disabled")
 	}
 
 	m.mu.Lock()
+	if typ, chain, existing, found := m.findOverlapLocked(pattern); found {
+		m.mu.Unlock()
+		return fmt.Errorf("new rule %q overlaps with existing rule %q in [%s/%s]", pattern, existing, typ, chain)
+	}
 	set, ok := m.cachedConf.ensureSet(vpnType)
 	if !ok {
 		m.mu.Unlock()
 		return fmt.Errorf("unknown VPN type: %s", vpnType)
 	}
 	set[chainName] = append(set[chainName], pattern)
+	m.rebuildIndexLocked()
 	err := m.writeConfig()
 	m.mu.Unlock()
 	if err != nil {
@@ -175,6 +282,30 @@ func (m *UnblockManager) AddRule(vpnType, chainName, pattern string) error {
 		return m.applyStaticEntry(vpnType, chainName, pattern, true)
 	}
 	return nil
+}
+
+func (m *UnblockManager) DeleteRuleByPattern(pattern string) (string, string, error) {
+	if err := matcher.Validate(pattern); err != nil {
+		return "", "", fmt.Errorf("invalid pattern: %w", err)
+	}
+	vpnType, chainName, _, exists := m.MatchDomain(pattern)
+	if !exists {
+		return "", "", fmt.Errorf("rule does not exist")
+	}
+	if err := m.DelRule(vpnType, chainName, pattern); err != nil {
+		return "", "", fmt.Errorf("failed to delete rule: %w", err)
+	}
+	return vpnType, chainName, nil
+}
+
+func (m *UnblockManager) RuleCount(vpnType, chainName string) int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	set, ok := m.cachedConf.lookupSet(vpnType)
+	if !ok {
+		return 0
+	}
+	return len(set[chainName])
 }
 
 func (m *UnblockManager) DelRule(vpnType, chainName, pattern string) error {
@@ -215,6 +346,7 @@ func (m *UnblockManager) DelRule(vpnType, chainName, pattern string) error {
 	if len(set) == 0 {
 		delete(m.cachedConf.Rules, vpnType)
 	}
+	m.rebuildIndexLocked()
 
 	err := m.writeConfig()
 	m.mu.Unlock()
@@ -246,6 +378,7 @@ func (m *UnblockManager) DelChain(vpnType, chainName string) error {
 	if len(set) == 0 {
 		delete(m.cachedConf.Rules, vpnType)
 	}
+	m.rebuildIndexLocked()
 	entries = append([]string(nil), entries...)
 	err := m.writeConfig()
 	m.mu.Unlock()
@@ -266,59 +399,23 @@ func (m *UnblockManager) DelChain(vpnType, chainName string) error {
 	return nil
 }
 
-func (m *UnblockManager) GetRules(vpnType, chainName string) ([]string, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	set, ok := m.cachedConf.lookupSet(vpnType)
-	if !ok {
-		return nil, fmt.Errorf("unknown VPN type: %s", vpnType)
-	}
-	return append([]string(nil), set[chainName]...), nil
-}
-
-func (m *UnblockManager) GetAllRules() (*VPNRulesConfig, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.cachedConf.Clone(), nil
-}
-
 func (m *UnblockManager) MatchDomain(domain string) (string, string, string, bool) {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
+	idx := m.index
+	m.mu.RUnlock()
 
-	for vpnType, set := range m.cachedConf.Rules {
-		for chain, rules := range set {
-			for _, pattern := range rules {
-				if matcher.Match(pattern, domain) {
-					return vpnType, chain, pattern, true
-				}
-			}
+	if idx == nil {
+		return "", "", "", false
+	}
+	if ref, ok := idx.exact[domain]; ok {
+		return ref.vpnType, ref.chain, ref.value, true
+	}
+	for _, ref := range idx.wild {
+		if matcher.Match(ref.value, domain) {
+			return ref.vpnType, ref.chain, ref.value, true
 		}
 	}
 	return "", "", "", false
-}
-
-func (m *UnblockManager) IPv6Enabled() bool {
-	return m != nil && m.ipv6Enabled
-}
-
-func (m *UnblockManager) IPSetDebug() bool {
-	return m != nil && m.ipsetDebug
-}
-
-func (m *UnblockManager) IPSetStaleQueries() int {
-	if m == nil {
-		return 0
-	}
-	return m.ipsetStaleQueries
-}
-
-func (m *UnblockManager) IPSetEntryTimeout() int {
-	if m == nil {
-		return 0
-	}
-	return m.ipsetEntryTimeout
 }
 
 func (m *UnblockManager) restoreStaticRules() error {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -16,6 +17,8 @@ import (
 	"github.com/ApostolDmitry/vpner/internal/logx"
 	"github.com/miekg/dns"
 )
+
+const hedgeDelay = 300 * time.Millisecond
 
 func (r *Upstream) ForwardQuery(query []byte) ([]byte, error) {
 	if len(r.servers) == 0 {
@@ -33,27 +36,42 @@ func (r *Upstream) ForwardQuery(query []byte) ([]byte, error) {
 
 	servers := r.orderServers()
 	ch := make(chan result, len(servers))
-	for _, s := range servers {
-		go func(s *upstreamState) {
+	launch := func(s *upstreamState) {
+		go func() {
 			start := time.Now()
 			resp, err := r.forwardToServer(ctx, s.server, query)
 			r.updateServerStat(s, time.Since(start), err)
-			select {
-			case ch <- result{server: s, resp: resp, err: err}:
-			case <-ctx.Done():
-			}
-		}(s)
+			ch <- result{server: s, resp: resp, err: err}
+		}()
 	}
 
+	hedge := time.NewTimer(hedgeDelay)
+	defer hedge.Stop()
+
+	launched, finished := 0, 0
+	launch(servers[launched])
+	launched++
+
 	var errs []string
-	for range servers {
+	for finished < launched {
 		select {
 		case res := <-ch:
+			finished++
 			if res.err == nil {
-				logx.Debugf("doh server %s won race", res.server.server)
+				logx.Debugf("doh server %s answered", res.server.server)
 				return res.resp, nil
 			}
 			errs = append(errs, fmt.Sprintf("%s: %v", res.server.server, res.err))
+			if launched < len(servers) {
+				launch(servers[launched])
+				launched++
+			}
+		case <-hedge.C:
+			if launched < len(servers) {
+				launch(servers[launched])
+				launched++
+				hedge.Reset(hedgeDelay)
+			}
 		case <-ctx.Done():
 			if len(errs) > 0 {
 				return nil, fmt.Errorf("doh timeout: %s", strings.Join(errs, "; "))
@@ -64,11 +82,53 @@ func (r *Upstream) ForwardQuery(query []byte) ([]byte, error) {
 	return nil, fmt.Errorf("all DoH servers failed: %s", strings.Join(errs, "; "))
 }
 
+func (r *Upstream) Resolve(ctx context.Context, host string) ([]net.IP, error) {
+	var ips []net.IP
+	var lastErr error
+	for _, qtype := range []uint16{dns.TypeA, dns.TypeAAAA} {
+		if err := ctx.Err(); err != nil {
+			return ips, err
+		}
+		msg := new(dns.Msg)
+		msg.SetQuestion(dns.Fqdn(host), qtype)
+		msg.RecursionDesired = true
+		packed, err := msg.Pack()
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		raw, err := r.ForwardQuery(packed)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		var resp dns.Msg
+		if err := resp.Unpack(raw); err != nil {
+			lastErr = err
+			continue
+		}
+		ips = append(ips, extractIPs(&resp)...)
+	}
+	if len(ips) == 0 && lastErr != nil {
+		return nil, lastErr
+	}
+	return ips, nil
+}
+
+func (s *upstreamState) healthy() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lastError.IsZero() || s.lastSuccess.After(s.lastError)
+}
+
 func (r *Upstream) orderServers() []*upstreamState {
 	out := append([]*upstreamState(nil), r.servers...)
 	rand.Shuffle(len(out), func(i, j int) { out[i], out[j] = out[j], out[i] })
 
 	sort.SliceStable(out, func(i, j int) bool {
+		if hi, hj := out[i].healthy(), out[j].healthy(); hi != hj {
+			return hi
+		}
 		if si, sj := out[i].successes.Load(), out[j].successes.Load(); si != sj {
 			return si > sj
 		}

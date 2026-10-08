@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 
 	grpcpb "github.com/ApostolDmitry/vpner/internal/grpc"
-	"github.com/ApostolDmitry/vpner/internal/tablefmt"
 )
 
 var (
@@ -38,15 +37,13 @@ func unblockListCmd() *cobra.Command {
 				if err != nil {
 					return err
 				}
-				table := tablefmt.Table{
-					Headers: []string{"VPN Type", "Chain", "Pattern"},
-				}
+				var rows [][]string
 				for _, rule := range resp.Rules {
 					for _, pattern := range rule.Rules {
-						table.Rows = append(table.Rows, []string{rule.TypeName, rule.ChainName, pattern})
+						rows = append(rows, []string{rule.TypeName, rule.ChainName, pattern})
 					}
 				}
-				printTable(table)
+				printTable([]string{"VPN Type", "Chain", "Pattern"}, rows)
 				return nil
 			})
 		},

@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	answerCacheDefaultMax = 4096
+	answerCacheDefaultMax = 1024
 	answerCacheTTLCap     = 3600
 	answerCacheNegTTLCap  = 300
 )
@@ -21,7 +21,7 @@ type answerCache struct {
 }
 
 type cachedAnswer struct {
-	msg      *dns.Msg
+	wire     []byte
 	storedAt time.Time
 	ttl      time.Duration
 }
@@ -55,9 +55,16 @@ func (c *answerCache) get(req *dns.Msg) *dns.Msg {
 		c.mu.Unlock()
 		return nil
 	}
-	resp := e.msg.Copy()
+	wire := e.wire
 	c.mu.Unlock()
 
+	resp := new(dns.Msg)
+	if err := resp.Unpack(wire); err != nil {
+		c.mu.Lock()
+		delete(c.entries, key)
+		c.mu.Unlock()
+		return nil
+	}
 	decrementTTL(resp, uint32(elapsed.Seconds()))
 	resp.Id = req.Id
 	resp.Question = req.Question
@@ -72,8 +79,10 @@ func (c *answerCache) put(resp *dns.Msg) {
 	if ttl == 0 {
 		return
 	}
-	stored := resp.Copy()
-	stored.Id = 0
+	wire, err := resp.Pack()
+	if err != nil {
+		return
+	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -81,7 +90,7 @@ func (c *answerCache) put(resp *dns.Msg) {
 		c.evictLocked()
 	}
 	c.entries[cacheKey(resp.Question[0])] = &cachedAnswer{
-		msg:      stored,
+		wire:     wire,
 		storedAt: time.Now(),
 		ttl:      time.Duration(ttl) * time.Second,
 	}
