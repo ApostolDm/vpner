@@ -54,6 +54,8 @@ func (r *Runtime) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	r.serverImpl.RestoreMarkRouting("")
+
 	if r.cfg.DNSServer.Running {
 		logx.Infof("Auto-starting DNS server")
 		if err := r.dnsService.Start(); err != nil {
@@ -64,7 +66,6 @@ func (r *Runtime) Run(ctx context.Context) error {
 	if err := r.xraySvc.StartAuto(); err != nil {
 		logx.Errorf("Failed to autostart xray chains: %v", err)
 	}
-	r.serverImpl.RestoreMarkRouting("")
 	r.serverImpl.RestoreXrayRouting(true, true, "")
 
 	servers, err := r.buildGRPCServers()
@@ -151,6 +152,7 @@ func (r *Runtime) runWatchdog(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			r.serverImpl.RefreshDefaultRoute()
 			if r.serverImpl.MarkRoutingHealthy() {
 				mark.reset()
 			} else if mark.due() {

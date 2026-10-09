@@ -2,6 +2,8 @@ package proxy
 
 import (
 	"context"
+	cryptorand "crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -74,9 +76,12 @@ func (x *Manager) Create(link string, autoRun bool) (string, error) {
 	} else if dup {
 		return "", fmt.Errorf("duplicate configuration exists")
 	}
+	if err := x.validateConfig(data); err != nil {
+		return "", err
+	}
 
 	name := x.uniqueName()
-	if err := x.write(name, link, parsed, port, autoRun, data); err != nil {
+	if err := x.write(name, link, parsed, port, autoRun, "", data); err != nil {
 		return "", err
 	}
 	return name, nil
@@ -113,7 +118,37 @@ func (x *Manager) Update(name, link string) error {
 	} else if dup {
 		return fmt.Errorf("duplicate configuration exists")
 	}
-	return x.write(name, link, parsed, port, meta.AutoRun, data)
+	if err := x.validateConfig(data); err != nil {
+		return err
+	}
+	return x.write(name, link, parsed, port, meta.AutoRun, meta.XUDPBaseKey, data)
+}
+
+func (x *Manager) validateConfig(data []byte) error {
+	tmp, err := os.CreateTemp(x.store.dir, ".validate-*.json")
+	if err != nil {
+		return fmt.Errorf("prepare config check: %w", err)
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return fmt.Errorf("prepare config check: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "xray", "run", "-test", "-config", tmp.Name()).CombinedOutput()
+	if err == nil {
+		return nil
+	}
+	msg := strings.TrimSpace(string(out))
+	if lines := strings.Split(msg, "\n"); len(lines) > 3 {
+		msg = strings.Join(lines[len(lines)-3:], "\n")
+	}
+	return fmt.Errorf("xray rejected the generated config (%v): %s\nIf the link was pasted into the router shell it may have been cut short (busybox limits a line to ~512 chars); save it to a file and use 'vpnerctl xray create --file <path>'", err, msg)
 }
 
 func (x *Manager) Delete(name string) error {
@@ -137,7 +172,10 @@ func (x *Manager) SetAutoRun(name string, autoRun bool) error {
 	return x.store.writeMeta(name, meta)
 }
 
-func (x *Manager) write(name, link string, l *Link, port int, autoRun bool, configJSON []byte) error {
+func (x *Manager) write(name, link string, l *Link, port int, autoRun bool, xudpKey string, configJSON []byte) error {
+	if xudpKey == "" {
+		xudpKey = newXUDPBaseKey()
+	}
 	meta := &chainMeta{
 		Link:        link,
 		Protocol:    string(l.Protocol),
@@ -145,6 +183,7 @@ func (x *Manager) write(name, link string, l *Link, port int, autoRun bool, conf
 		Port:        l.Port,
 		InboundPort: port,
 		AutoRun:     autoRun,
+		XUDPBaseKey: xudpKey,
 	}
 	if err := x.store.writeMeta(name, meta); err != nil {
 		return fmt.Errorf("failed to write metadata: %w", err)
@@ -160,12 +199,13 @@ func (x *Manager) Start(ctx context.Context, name string) error {
 	if err := checkXrayBinary(); err != nil {
 		return err
 	}
-	path, err := x.prepareConfig(name)
+	path, xudpKey, err := x.prepareConfig(name)
 	if err != nil {
 		return err
 	}
 
 	cmd := exec.CommandContext(ctx, "xray", "run", "-config", path)
+	cmd.Env = append(os.Environ(), xudpBaseKeyEnv+"="+xudpKey)
 	prefix := fmt.Sprintf("xray-%s", name)
 	cmd.Stdout = logx.NewStreamWriter(prefix, logx.LevelInfo)
 	cmd.Stderr = logx.NewStreamWriter(prefix, logx.LevelWarn)
@@ -181,31 +221,52 @@ func (x *Manager) Start(ctx context.Context, name string) error {
 	return nil
 }
 
-func (x *Manager) prepareConfig(name string) (string, error) {
+func (x *Manager) prepareConfig(name string) (string, string, error) {
 	x.mu.Lock()
 	defer x.mu.Unlock()
 
 	meta, err := x.store.readMeta(name)
 	if err != nil {
-		return "", notFound(name, err)
+		return "", "", notFound(name, err)
+	}
+	if !validXUDPBaseKey(meta.XUDPBaseKey) {
+		meta.XUDPBaseKey = newXUDPBaseKey()
+		if err := x.store.writeMeta(name, meta); err != nil {
+			return "", "", fmt.Errorf("failed to persist xudp key: %w", err)
+		}
 	}
 
 	if meta.Link != "" {
 		parsed, err := ParseLink(meta.Link)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
 		data, _, err := renderConfig(parsed, meta.InboundPort, x.tproxyEnabled)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
 		if err := x.store.writeConfig(name, data); err != nil {
-			return "", err
+			return "", "", err
 		}
 	} else if err := x.refreshLegacyConfig(name, meta); err != nil {
-		return "", err
+		return "", "", err
 	}
-	return x.store.configPath(name), nil
+	return x.store.configPath(name), meta.XUDPBaseKey, nil
+}
+
+const xudpBaseKeyEnv = "XRAY_XUDP_BASEKEY"
+
+func newXUDPBaseKey() string {
+	key := make([]byte, 32)
+	if _, err := cryptorand.Read(key); err != nil {
+		panic(err)
+	}
+	return base64.RawURLEncoding.EncodeToString(key)
+}
+
+func validXUDPBaseKey(key string) bool {
+	decoded, err := base64.RawURLEncoding.DecodeString(key)
+	return err == nil && len(decoded) == 32
 }
 
 func (x *Manager) refreshLegacyConfig(name string, meta *chainMeta) error {
@@ -304,7 +365,9 @@ func (x *Manager) Test(name string) (string, error) {
 		}
 	}
 
-	if meta.Address != "" && meta.Port > 0 {
+	if meta.Protocol == string(ProtoHysteria2) && meta.Address != "" {
+		fmt.Fprintf(&b, "  server:  udp/quic endpoint %s (not probed)\n", net.JoinHostPort(meta.Address, strconv.Itoa(meta.Port)))
+	} else if meta.Address != "" && meta.Port > 0 {
 		addr := net.JoinHostPort(meta.Address, strconv.Itoa(meta.Port))
 		conn, derr := net.DialTimeout("tcp", addr, 5*time.Second)
 		if derr == nil {
@@ -354,15 +417,24 @@ func (x *Manager) isDuplicate(outbound jobj, exclude string) (bool, error) {
 		if n == exclude {
 			continue
 		}
-		ob, err := x.store.readConfigOutbound(n)
-		if err != nil || ob == nil {
-			continue
-		}
-		if fingerprint(ob) == fp {
+		if fingerprint(x.currentOutbound(n)) == fp {
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+func (x *Manager) currentOutbound(name string) jobj {
+	if meta, err := x.store.readMeta(name); err == nil && meta.Link != "" {
+		if parsed, err := ParseLink(meta.Link); err == nil {
+			return buildOutbound(parsed)
+		}
+	}
+	ob, err := x.store.readConfigOutbound(name)
+	if err != nil {
+		return nil
+	}
+	return ob
 }
 
 func (x *Manager) findFreePort() (int, error) {

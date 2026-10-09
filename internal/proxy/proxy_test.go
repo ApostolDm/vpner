@@ -82,7 +82,8 @@ func TestCanonicalNetwork(t *testing.T) {
 		"websocket":   "ws",
 		"ws":          "ws",
 		"mkcp":        "kcp",
-		"xhttp":       "splithttp",
+		"xhttp":       "xhttp",
+		"splithttp":   "xhttp",
 		"httpupgrade": "httpupgrade",
 		"grpc":        "grpc",
 	}

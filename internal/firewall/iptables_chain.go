@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"hash/adler32"
+	"io"
 	"os/exec"
 	"strings"
 
@@ -90,18 +91,33 @@ func listPreroutingRules(iptablesCmd, table string) map[string]bool {
 }
 
 func listChainRules(iptablesCmd, table, chain string) map[string]bool {
+	counts := chainRuleCounts(iptablesCmd, table, chain)
+	if counts == nil {
+		return nil
+	}
+	result := make(map[string]bool, len(counts))
+	for rule := range counts {
+		result[rule] = true
+	}
+	return result
+}
+
+func chainRuleCounts(iptablesCmd, table, chain string) map[string]int {
 	out, err := exec.Command(iptablesSaveCmd(iptablesCmd), "-t", table).Output()
 	if err != nil {
 		return nil
 	}
+	return parseChainRules(strings.NewReader(string(out)), chain)
+}
 
-	result := make(map[string]bool)
-	scanner := bufio.NewScanner(strings.NewReader(string(out)))
+func parseChainRules(r io.Reader, chain string) map[string]int {
+	result := make(map[string]int)
+	scanner := bufio.NewScanner(r)
 	prefix := "-A " + chain
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == prefix || strings.HasPrefix(line, prefix+" ") {
-			result[line] = true
+			result[line]++
 		}
 	}
 	return result

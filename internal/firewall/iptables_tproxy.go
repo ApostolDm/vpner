@@ -100,10 +100,6 @@ func probeTProxyUserspace(f ipFamily) error {
 }
 
 func (i *IptablesManager) ensureTProxyLocalRouting(f ipFamily) {
-	if i.ipInfraReady {
-		return
-	}
-
 	tbl := fmt.Sprintf("%d", tproxyTableID)
 	if !ipRuleExists(f, tproxyMark, tbl) {
 		addRule := append(f.ipFlags, "rule", "add", "fwmark", tproxyMark, "lookup", tbl)
@@ -111,7 +107,10 @@ func (i *IptablesManager) ensureTProxyLocalRouting(f ipFamily) {
 	}
 	routeArgs := append(f.ipFlags, "route", "replace", "local", "default", "dev", "lo", "table", tbl)
 	tryRun("ip", routeArgs...)
-	i.ipInfraReady = true
+}
+
+func tproxyLocalRoutingIntact(f ipFamily) bool {
+	return ipRuleExists(f, tproxyMark, fmt.Sprintf("%d", tproxyTableID)) && routeTablePopulated(f, tproxyTableID)
 }
 
 func (i *IptablesManager) ensureMangleInputBypass(f ipFamily) error {
@@ -262,6 +261,5 @@ func (i *IptablesManager) Shutdown() {
 		if i.ipv6Enabled {
 			i.cleanupTProxyInfraForFamily(familyV6)
 		}
-		i.ipInfraReady = false
 	}
 }

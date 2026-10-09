@@ -36,6 +36,7 @@ func main() {
 		logx.Warnf("syslog unavailable, using stderr fallback: %v", err)
 	}
 	logx.Infof("Starting vpnerd, config=%s", configFile)
+	raiseOpenFilesLimit()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

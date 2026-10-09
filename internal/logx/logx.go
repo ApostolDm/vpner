@@ -89,6 +89,12 @@ func SetLevel(name string) {
 	}
 }
 
+func DebugEnabled() bool {
+	mu.RLock()
+	defer mu.RUnlock()
+	return level >= LevelDebug
+}
+
 func SetSink(s Sink) {
 	if s == nil {
 		return

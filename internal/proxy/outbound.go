@@ -10,9 +10,121 @@ func buildOutbound(l *Link) jobj {
 		return vmessOutbound(l)
 	case ProtoSS:
 		return ssOutbound(l)
+	case ProtoTrojan:
+		return trojanOutbound(l)
+	case ProtoHysteria2:
+		return hysteria2Outbound(l)
 	default:
 		return vlessOutbound(l)
 	}
+}
+
+func hysteria2Outbound(l *Link) jobj {
+	tls := jobj{"alpn": firstNonEmptyList(splitCSV(l.ALPN), []string{"h3"})}
+	// Hysteria's HTTP/3 authentication uses the synthetic host "hysteria".
+	// Set the TLS name explicitly so an empty SNI cannot select that host.
+	put(tls, "serverName", firstNonEmpty(l.SNI, l.Address))
+	put(tls, "fingerprint", l.Fingerprint)
+	put(tls, "echConfigList", l.ECH)
+	put(tls, "verifyPeerCertByName", l.VerifyPeerCertByName)
+	put(tls, "pinnedPeerCertSha256", l.PinnedPeerCertSha256)
+	if l.AllowInsecure {
+		tls["allowInsecure"] = true
+	}
+	stream := jobj{
+		"network":  "hysteria",
+		"security": "tls",
+		"hysteriaSettings": jobj{
+			"version":        2,
+			"auth":           l.Password,
+			"udpIdleTimeout": 60,
+		},
+		"tlsSettings": tls,
+	}
+	if fm := withUDPMasks(l.FinalMask, hysteriaMasks(l)); len(fm) > 0 {
+		stream["finalmask"] = fm
+	}
+	return jobj{
+		"tag":            firstNonEmpty(l.Tag, "hysteria2"),
+		"protocol":       "hysteria",
+		"settings":       jobj{"address": l.Address, "port": l.Port, "version": 2},
+		"streamSettings": stream,
+	}
+}
+
+func hysteriaMasks(l *Link) []jobj {
+	var masks []jobj
+	if (l.Obfs == "salamander" || l.Obfs == "gecko") && l.ObfsPassword != "" {
+		settings := jobj{"password": l.ObfsPassword}
+		put(settings, "packetSize", l.PacketSize)
+		masks = append(masks, jobj{"type": "salamander", "settings": settings})
+	}
+	if l.HopPorts != "" {
+		masks = append(masks, jobj{"type": "udphop", "settings": jobj{
+			"mode":        "intervalremote",
+			"interval":    "5-10",
+			"remotePorts": l.HopPorts,
+		}})
+	}
+	return masks
+}
+
+var mkcpHeaders = map[string]string{
+	"dns": "dns", "dtls": "dtls", "srtp": "srtp", "utp": "utp",
+	"wechat-video": "wechat", "wechat": "wechat", "wireguard": "wireguard",
+}
+
+func mkcpMasks(l *Link) []jobj {
+	var masks []jobj
+	if l.Seed != "" {
+		masks = append(masks, jobj{"type": "mkcp-legacy", "settings": jobj{"header": "", "value": l.Seed}})
+	}
+	if header, ok := mkcpHeaders[strings.ToLower(l.HeaderType)]; ok {
+		masks = append(masks, jobj{"type": "mkcp-legacy", "settings": jobj{"header": header, "value": ""}})
+	}
+	return masks
+}
+
+func withUDPMasks(base map[string]any, masks []jobj) jobj {
+	out := make(jobj, len(base)+1)
+	for k, v := range base {
+		out[k] = v
+	}
+	udp, _ := out["udp"].([]any)
+	present := make(map[string]bool, len(udp))
+	for _, m := range udp {
+		if mm, ok := m.(map[string]any); ok {
+			if t, _ := mm["type"].(string); t != "" {
+				present[t] = true
+			}
+		}
+	}
+	for _, m := range masks {
+		if t, _ := m["type"].(string); !present[t] {
+			udp = append(udp, m)
+		}
+	}
+	if len(udp) > 0 {
+		out["udp"] = udp
+	}
+	return nilIfEmpty(out)
+}
+
+func firstNonEmptyList(values, fallback []string) []string {
+	if len(values) > 0 {
+		return values
+	}
+	return fallback
+}
+
+func trojanOutbound(l *Link) jobj {
+	return proxyOutbound(l, "trojan", firstNonEmpty(l.Tag, "trojan"), jobj{
+		"servers": []jobj{{
+			"address":  l.Address,
+			"port":     l.Port,
+			"password": l.Password,
+		}},
+	})
 }
 
 func vlessOutbound(l *Link) jobj {
@@ -57,18 +169,7 @@ func ssOutbound(l *Link) jobj {
 		"method":   l.Method,
 		"password": l.Password,
 	}
-	if l.Plugin != "" {
-		name, opts, _ := strings.Cut(l.Plugin, ";")
-		server["plugin"] = name
-		if opts != "" {
-			server["pluginOpts"] = opts
-		}
-	}
-	return jobj{
-		"tag":      firstNonEmpty(l.Tag, "shadowsocks"),
-		"protocol": "shadowsocks",
-		"settings": jobj{"servers": []jobj{server}},
-	}
+	return proxyOutbound(l, "shadowsocks", firstNonEmpty(l.Tag, "shadowsocks"), jobj{"servers": []jobj{server}})
 }
 
 func proxyOutbound(l *Link, protocol, tag string, settings jobj) jobj {
@@ -88,9 +189,19 @@ func buildStream(l *Link) jobj {
 	sni := firstNonEmpty(l.SNI, l.Host)
 
 	stream := jobj{}
+	if network != "tcp" {
+		stream["network"] = network
+	}
 	addSecurity(stream, l, sni)
 	if t := transportSettings(l, network, sni); t != nil {
 		stream[network+"Settings"] = t
+	}
+	var masks []jobj
+	if network == "kcp" {
+		masks = mkcpMasks(l)
+	}
+	if fm := withUDPMasks(l.FinalMask, masks); len(fm) > 0 {
+		stream["finalmask"] = fm
 	}
 	if len(stream) == 0 {
 		return nil
@@ -108,7 +219,7 @@ func canonicalNetwork(raw string) string {
 	case "kcp", "mkcp":
 		return "kcp"
 	case "xhttp", "splithttp":
-		return "splithttp"
+		return "xhttp"
 	case "grpc", "httpupgrade":
 		return strings.ToLower(strings.TrimSpace(raw))
 	default:
@@ -129,6 +240,9 @@ func addSecurity(stream jobj, l *Link, sni string) {
 		if l.AllowInsecure {
 			s["allowInsecure"] = true
 		}
+		put(s, "echConfigList", l.ECH)
+		put(s, "verifyPeerCertByName", l.VerifyPeerCertByName)
+		put(s, "pinnedPeerCertSha256", l.PinnedPeerCertSha256)
 		if len(s) > 0 {
 			stream["tlsSettings"] = s
 		}
@@ -154,8 +268,8 @@ func transportSettings(l *Link, network, sni string) jobj {
 		return grpcSettings(l, sni)
 	case "kcp":
 		return kcpSettings(l)
-	case "splithttp":
-		return splitHTTPSettings(l, sni)
+	case "xhttp":
+		return xhttpSettings(l, sni)
 	default:
 		return nil
 	}
@@ -168,10 +282,10 @@ func tcpSettings(l *Link, sni string) jobj {
 		if ht == "http" {
 			request := jobj{}
 			if uris := splitCSV(firstNonEmpty(l.Path, "/")); len(uris) > 0 {
-				request["uri"] = uris
+				request["path"] = uris
 			}
 			if host := splitCSV(firstNonEmpty(l.Host, sni)); len(host) > 0 {
-				request["header"] = []jobj{{"name": "Host", "value": host}}
+				request["headers"] = jobj{"Host": host}
 			}
 			if len(request) > 0 {
 				header["request"] = request
@@ -230,14 +344,26 @@ func kcpSettings(l *Link) jobj {
 	return nilIfEmpty(s)
 }
 
-func splitHTTPSettings(l *Link, sni string) jobj {
+func xhttpSettings(l *Link, sni string) jobj {
 	s := jobj{}
 	put(s, "path", l.Path)
 	put(s, "host", firstNonEmpty(l.Host, sni))
 	if l.Mode != "" {
 		s["mode"] = strings.ToLower(l.Mode)
 	}
-	return nilIfEmpty(s)
+	if len(l.Extra) == 0 {
+		put(s, "xPaddingBytes", l.XPaddingBytes)
+		return nilIfEmpty(s)
+	}
+	extra := make(jobj, len(l.Extra)+1)
+	for k, v := range l.Extra {
+		extra[k] = v
+	}
+	if _, ok := extra["xPaddingBytes"]; !ok {
+		put(extra, "xPaddingBytes", l.XPaddingBytes)
+	}
+	s["extra"] = extra
+	return s
 }
 
 func put(m jobj, key, val string) {

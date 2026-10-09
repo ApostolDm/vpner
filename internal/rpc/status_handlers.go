@@ -98,6 +98,7 @@ func (s *VpnerServer) Status(_ context.Context, _ *grpcpb.Empty) (*grpcpb.Status
 	if s.ipsetCounts != nil {
 		resp.IpsetEntriesV4, resp.IpsetEntriesV6 = s.ipsetCounts()
 	}
+	resp.DefaultRoute = s.defaultRouteStatus()
 
 	return resp, nil
 }

@@ -92,6 +92,9 @@ func (s *VpnerServer) InterfaceDel(ctx context.Context, req *grpcpb.InterfaceAct
 	}
 	iface, tracked := s.ifManager.LookupTracked(req.Id)
 	if tracked {
+		if s.isDefaultRoute(iface.Type, req.Id) {
+			return errorGeneric(fmt.Sprintf("Interface %s is the default route; run 'vpnerctl route split' first", req.Id)), nil
+		}
 		if err := s.removeMarkRouting(iface.Type, req.Id); err != nil {
 			return errorGeneric(fmt.Sprintf("Failed to remove routing: %v", err)), nil
 		}

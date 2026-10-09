@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"log"
+	"path/filepath"
 	"time"
 
 	"github.com/ApostolDmitry/vpner/internal/buildinfo"
@@ -87,8 +88,11 @@ func buildRuntimeGraph(cfg conf.FullConfig) (*runtimeGraph, error) {
 			DNSPort:       cfg.DNSServer.Port,
 			TProxyEnabled: tproxyEnabled,
 		},
-		IPSetCounts: firewall.ManagedIpsetCounts,
+		IPSetCounts:      firewall.ManagedIpsetCounts,
+		DefaultRouteFile: filepath.Join(filepath.Dir(cfg.UnblockRulesPath), rpc.DefaultRouteFileName),
 	})
+	iptables.SetDefaultRouteObserver(ipRules.SetDefaultRoute)
+	srv.LoadDefaultRoute()
 
 	return &runtimeGraph{
 		dnsService: dnsSvc,

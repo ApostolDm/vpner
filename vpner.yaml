@@ -45,6 +45,9 @@ network:
   enable-ipv6: false
   enable-tproxy: false
   ipset-debug: false
+  # Legacy mode (ipset-entry-timeout: -1) only: drop an IP after this many
+  # consecutive DNS answers for the same domain that no longer contain it.
+  # 0 = drop on the first mismatch, -1 = never delete (sets only grow).
   ipset-stale-queries: 100
   # Kernel timeout (seconds) for DNS-resolved ipset entries. Every DNS answer
   # refreshes the timer, so IPs in active use never expire while rotated-out
@@ -74,6 +77,9 @@ network:
   # list and drop the range that covers it (keep your own LAN subnet here).
   # Entries are split by family automatically; overriding is per-family, so if
   # you list only IPv4 entries the IPv6 defaults stay in effect (and vice versa).
+  # The full tunnel (vpnerctl route all) always keeps the built-in defaults as
+  # exceptions in addition to this list, so narrowing it never sends another
+  # private subnet into the tunnel; use explicit rules for that.
   # The lists below are the built-in defaults; uncomment and edit to override.
   # local-exceptions:
   #   # IPv4 defaults (replace 192.168.0.0/16 with your real LAN subnet, e.g.

@@ -15,6 +15,8 @@ func (s *VpnerServer) removeXrayRouting(chain string) error {
 }
 
 func (s *VpnerServer) RestoreXrayRouting(restoreV4, restoreV6 bool, table string) {
+	s.xrayMu.Lock()
+	defer s.xrayMu.Unlock()
 	infos, err := s.xrayService.ListInfo()
 	if err != nil {
 		logx.Errorf("failed to list Xray configs: %v", err)

@@ -3,6 +3,7 @@ package firewall
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/ApostolDmitry/vpner/internal/vpnkind"
 )
@@ -94,6 +95,10 @@ func (i *IptablesManager) ResetXrayFamilies(resetV4, resetV6 bool) {
 			_ = i.RemoveRulesV6(ipsetName)
 		}
 	}
+	i.mu.Lock()
+	i.resetDefaultLocked("", resetV4, resetV6)
+	i.ensureDefaultLocked()
+	i.mu.Unlock()
 }
 
 func (i *IptablesManager) RemoveAllXrayRoutes() {
@@ -149,14 +154,7 @@ func ensureManagedIPSet(ipsetName string, ipv6 bool, entryTimeout int) error {
 }
 
 func (i *IptablesManager) registerXrayEntryLocked(ipsetName string, port int, ifaces []string) {
-	table := i.XrayTable()
-	i.routingV4[ipsetName] = vpnRoutingInfo{
-		VPNType:   vpnkind.Xray,
-		ChainName: buildChainName(ipsetName),
-		Table:     table,
-		Port:      port,
-		Ifaces:    append([]string(nil), ifaces...),
-	}
+	i.registerXrayFamilyLocked(i.routingV4, ipsetName, port, ifaces)
 	if !i.ipv6Enabled {
 		return
 	}
@@ -165,13 +163,21 @@ func (i *IptablesManager) registerXrayEntryLocked(ipsetName string, port int, if
 	if err != nil {
 		return
 	}
-	i.routingV6[ipsetName6] = vpnRoutingInfo{
+	i.registerXrayFamilyLocked(i.routingV6, ipsetName6, port, ifaces)
+}
+
+func (i *IptablesManager) registerXrayFamilyLocked(routing map[string]vpnRoutingInfo, ipsetName string, port int, ifaces []string) {
+	info := vpnRoutingInfo{
 		VPNType:   vpnkind.Xray,
-		ChainName: buildChainName(ipsetName6),
-		Table:     table,
+		ChainName: buildChainName(ipsetName),
+		Table:     i.XrayTable(),
 		Port:      port,
 		Ifaces:    append([]string(nil), ifaces...),
 	}
+	if prev, ok := routing[ipsetName]; ok && prev.VPNType == vpnkind.Xray && prev.Table == info.Table && prev.Port == port && strings.Join(prev.Ifaces, ",") == strings.Join(ifaces, ",") {
+		info.JumpRules = prev.JumpRules
+	}
+	routing[ipsetName] = info
 }
 
 func (i *IptablesManager) ResetAfterFlush(table string, resetV4, resetV6 bool) {
@@ -179,6 +185,7 @@ func (i *IptablesManager) ResetAfterFlush(table string, resetV4, resetV6 bool) {
 	defer i.mu.Unlock()
 
 	i.resetJumpState(table, resetV4, resetV6)
+	i.resetDefaultLocked(table, resetV4, resetV6)
 }
 
 func (i *IptablesManager) resetJumpState(table string, resetV4, resetV6 bool) {

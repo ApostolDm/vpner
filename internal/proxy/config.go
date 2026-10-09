@@ -1,10 +1,15 @@
 package proxy
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/ApostolDmitry/vpner/internal/logx"
+)
 
 func renderConfig(l *Link, inboundPort int, tproxy bool) ([]byte, jobj, error) {
 	outbound := buildOutbound(l)
 	cfg := jobj{
+		"log":       buildLog(),
 		"inbounds":  []jobj{buildInbound(inboundPort, tproxy)},
 		"outbounds": []jobj{outbound},
 	}
@@ -13,6 +18,14 @@ func renderConfig(l *Link, inboundPort int, tproxy bool) ([]byte, jobj, error) {
 		return nil, nil, err
 	}
 	return data, outbound, nil
+}
+
+func buildLog() jobj {
+	level := "warning"
+	if logx.DebugEnabled() {
+		level = "debug"
+	}
+	return jobj{"loglevel": level}
 }
 
 func buildInbound(port int, tproxy bool) jobj {

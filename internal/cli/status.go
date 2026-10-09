@@ -38,6 +38,7 @@ func printStatus(s *grpcpb.StatusResponse) {
 	}
 	fmt.Printf("vpnerd %s  (up %s)\n", s.Version, humanSeconds(s.UptimeSeconds))
 	fmt.Printf("DNS: %s   mode: %s   unblock rules: %d\n", dns, mode, s.UnblockRuleCount)
+	fmt.Println(formatDefaultRoute(s.DefaultRoute))
 	if s.IpsetEntriesV4 > 0 || s.IpsetEntriesV6 > 0 {
 		fmt.Printf("ipset entries: %d v4, %d v6\n", s.IpsetEntriesV4, s.IpsetEntriesV6)
 	}

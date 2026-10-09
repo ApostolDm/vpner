@@ -15,9 +15,10 @@ The project is designed first of all for Linux routers with `/opt`, and it fits 
 
 ## What `vpner` does
 
-- Creates and manages Xray chains from `vmess://`, `vless://`, and `ss://` links.
+- Creates and manages Xray chains from `vmess://`, `vless://`, `trojan://`, `ss://` and `hysteria2://` links (3x-ui share links incl. XHTTP `extra`, REALITY/pqv, VLESS encryption, ECH, finalmask, mKCP headers, Hysteria2 salamander/port hopping). Hysteria2 and the `finalmask`-based features need an Xray-core from 2026 (v26.9+) on the router; TUIC and WireGuard/AmneziaWG links are not possible inside Xray.
 - Runs a local DNS service with DoH upstreams and optional per-domain custom resolvers.
 - Stores unblock rules in YAML and synchronizes them to `ipset`.
+- Can switch to a full tunnel: all LAN internet traffic through one chain (`vpnerctl route all`), while explicit rules for other chains keep priority.
 - Rebuilds iptables/ipset routing when the router flushes tables.
 - Supports both classic `REDIRECT` mode and `TPROXY` mode.
 
@@ -158,7 +159,7 @@ Important settings:
 - `network.lan-interfaces` — LAN interfaces whose traffic should be intercepted.
 - `network.enable-ipv6` — enable IPv6 iptables/ipset/ip-rule handling.
 - `network.enable-tproxy` — switch Xray/routing to transparent proxy mode when supported.
-- `network.ipset-stale-queries` — delay removal of domain-derived IPs from `ipset`.
+- `network.ipset-stale-queries` — delay removal of domain-derived IPs from `ipset` (legacy mode only, i.e. `ipset-entry-timeout: -1`): an IP is dropped after this many consecutive DNS answers for the same domain without it; `0` drops it on the first mismatch, `-1` never deletes (sets only grow, safest for long UDP sessions such as voice chats).
 
 ## Unblock rules file
 
@@ -181,6 +182,25 @@ Notes:
 - Domain patterns must match the project validation rules.
 - IPs and CIDRs are stored as static `ipset` entries.
 - The file is updated automatically when you add or delete rules through `vpnerctl`.
+- The full-tunnel target (`vpnerctl route all`) is NOT stored here; it lives next to it in `vpner_default_route.yaml` (`type:` + `chain:`). Delete that file to disable the full tunnel while the daemon is stopped.
+
+## Full tunnel (route all)
+
+`vpnerctl route all <chain>` sends **all** LAN internet traffic through one chain — a tracked router VPN interface (`OpenVPN0`, `Wireguard0`, ...) or an Xray chain (`xray1`). `vpnerctl route split` returns to per-rule routing; `vpnerctl route status` shows the mode (exit code 1 when a target is set but not active, e.g. the interface is down).
+
+How it works:
+
+- A `VPN_DEFAULT` chain is appended after every per-rule chain, so explicit `unblock` rules for *other* chains still win.
+- The LAN never goes through the tunnel: the router's own addresses and connected subnets (re-read every watchdog tick and on interface events), private/link-local/multicast ranges (the built-in `local-exceptions` list is always applied here, in addition to any override in `vpner.yaml`) and, when the kernel has the `conntrack --ctdir` match, replies to inbound port-forwards are excluded (without that match `route all` prints a warning and port-forward replies follow the tunnel too).
+- Only traffic entering from `lan-interfaces` is affected. Traffic originated by the router itself (including `vpnerd`'s DoH queries) stays on the WAN.
+- The target is persisted and restored on daemon start, after Keenetic netfilter reloads and when the interface comes back up / the Xray chain is started. With `enable-ipv6: false`, AAAA answers are stripped for every name while the full tunnel is active, so dual-stack clients cannot bypass it over IPv6 via the router's DNS.
+
+Limitations:
+
+- No kill switch: if the router VPN goes down its routing table is empty and LAN traffic falls back to the WAN (`route status` reports it, the daemon logs a warning). A stopped Xray chain removes the full tunnel cleanly; a crashed one blackholes LAN traffic until the supervisor restarts it.
+- REDIRECT mode (no TPROXY) proxies TCP only: UDP (QUIC, DNS to external resolvers) bypasses the tunnel. In TPROXY mode *all* LAN UDP goes through the Xray outbound, which must relay UDP (`vpnerctl xray test`). TPROXY/REDIRECT do not tunnel ICMP; a router VPN target does.
+- Enabling/disabling resets connections that were established before the switch; in TPROXY mode UDP sessions that were tunnelled stay dark after `route split` until Xray times them out (or `xray stop`/`start`). Per-client exclusions are not supported.
+- A `vpnerd` restart or upgrade leaves a short window on the WAN until routing is restored.
 
 ## Managing the daemon
 
@@ -188,7 +208,7 @@ Notes:
 
 - DNS service, if `dnsServer.running: true`
 - all Xray chains with `auto_run: true`
-- routing restore for already configured chains
+- routing restore for already configured chains, including the full-tunnel target
 
 The default daemon start command is:
 
@@ -229,7 +249,10 @@ vpnerctl dns status
 vpnerctl dns restart
 
 vpnerctl xray list
-vpnerctl xray create 'vless://...'
+vpnerctl xray create 'vless://...'         # also vmess://, trojan://, ss://, hysteria2://
+vpnerctl xray create 'https://panel.example.com/sub/ID'   # subscription URL: every node becomes a chain (--index N for one)
+vpnerctl xray update xray1 'https://panel.example.com/sub/ID' --index 1
+vpnerctl xray create --file /opt/tmp/link.txt   # long links (REALITY pqv): the router shell cuts pasted lines
 vpnerctl xray update xray1 'vless://...'   # swap server, keep the chain's rule pool
 vpnerctl xray start xray1
 vpnerctl xray stop xray1
@@ -244,7 +267,15 @@ vpnerctl unblock add --chain xray1 "*.netflix.com"
 vpnerctl unblock del "*.netflix.com"
 vpnerctl unblock import-file --chain xray1 --file rules.txt
 vpnerctl unblock delete-file --file rules.txt
+
+vpnerctl route all xray1      # full tunnel: everything from the LAN via xray1
+vpnerctl route status
+vpnerctl route split          # back to per-rule routing
 ```
+
+`default-chain` in `~/.vpner.cnf` only pre-fills `--chain` for `unblock` commands; `route all` always needs an explicit chain.
+
+For Hysteria2, an empty or missing `sni` defaults to the server address when generating TLS settings. Static `ech`/`echConfigList` values are checked with Go's native TLS before import; invalid ECH is rejected with guidance. Replace it with a valid config, or remove the parameter if connecting without ECH is acceptable (the server name will be visible in the TLS ClientHello). Certificate verification stays enabled. Use `vpnerctl xray update` to change the stored link so the fix survives restarts: the JSON is regenerated from that link at startup.
 
 ## `vpnerhookcli`
 
@@ -325,6 +356,9 @@ Build output:
 ## Troubleshooting
 
 - `xray binary not found in PATH`: install `xray-core` and make sure `xray` is visible in the daemon environment.
+- `vpnerctl xray create` says `xray rejected the generated config`, or a REALITY chain comes out as plain VLESS: the link was cut short while pasting (the easiest workaround is to pass the subscription URL instead of the link: `vpnerctl xray create 'https://panel/sub/ID'`, add `--insecure` for a self-signed panel certificate) — busybox on the router truncates an input line at about 512 characters, and a 3x-ui REALITY link with `pqv` is ~2.8 KB. Put the link into a file (`scp`, or `cat > /opt/tmp/link.txt` followed by paste and Ctrl-D) and run `vpnerctl xray create --file /opt/tmp/link.txt` (or `xray update <chain> --file ...`).
+- `vpnerctl xray create 'vpn://...'` (WireGuard / AmneziaWG config) is refused: Xray-core has no AmneziaWG support and 3x-ui runs AmneziaWG inside the panel, not in Xray. Import the `.conf` as a Keenetic WireGuard connection instead (KeeneticOS applies the ASC/AmneziaWG 1.0–2.0 parameters natively; blank the 3.x fields in the 3x-ui inbound), then `vpnerctl interface add <Wireguard id>`.
 - DNS does not start on port `53`: another DNS service is already bound to that port.
 - `enable-tproxy: true` has no effect on Keenetic: first verify the **Kernel modules for Netfilter** component in KeeneticOS.
 - `vpnerctl` cannot reach the daemon: check whether you are connecting over `/tmp/vpner.sock` or TCP and whether the password matches `grpc.auth.password`.
+- The whole LAN lost internet, or everything suddenly goes through a VPN: run `vpnerctl route status`; `vpnerctl route split` returns to per-rule routing (or delete `vpner_default_route.yaml` and restart the daemon).

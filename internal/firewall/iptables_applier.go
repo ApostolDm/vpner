@@ -12,6 +12,7 @@ import (
 func (i *IptablesManager) AddRules(vpnType vpnkind.Kind, ipsetName string, param int, iface, vpnIface string) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
+	defer i.ensureDefaultLocked()
 
 	if err := i.addRulesForFamily(familyV4, i.routingV4, vpnType, ipsetName, param, iface, vpnIface); err != nil {
 		return err
@@ -30,6 +31,7 @@ func (i *IptablesManager) AddRules(vpnType vpnkind.Kind, ipsetName string, param
 func (i *IptablesManager) RemoveRules(ipsetName string) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
+	defer i.ensureDefaultLocked()
 
 	v4Err := i.removeRulesForFamily(familyV4, i.routingV4, ipsetName)
 	if !i.ipv6Enabled {
@@ -111,9 +113,11 @@ func (i *IptablesManager) addRulesForFamily(f ipFamily, routing map[string]vpnRo
 			rollback(false)
 			return err
 		}
-		if err := addIPRule(f, mark, tableID); err != nil && !isExistsError(err) {
-			rollback(false)
-			return err
+		if !ipRuleExists(f, fmt.Sprintf("%d", mark), fmt.Sprintf("%d", tableID)) {
+			if err := addIPRule(f, mark, tableID); err != nil && !isExistsError(err) {
+				rollback(false)
+				return err
+			}
 		}
 		if err := addIPRoute(f, tableID, vpnIface); err != nil && !isExistsError(err) {
 			rollback(true)
@@ -156,8 +160,7 @@ func (i *IptablesManager) removeRulesForFamily(f ipFamily, routing map[string]vp
 	tryRun(f.iptablesCmd, "-t", table, "-X", info.ChainName)
 
 	if info.Mark != 0 && info.TableID != 0 {
-		delArgs := append(f.ipFlags, "rule", "del", "fwmark", fmt.Sprintf("%d", info.Mark), "table", fmt.Sprintf("%d", info.TableID))
-		tryRun("ip", delArgs...)
+		deleteIPRule(f, info.Mark, info.TableID)
 		flushArgs := append(f.ipFlags, "route", "flush", "table", fmt.Sprintf("%d", info.TableID))
 		tryRun("ip", flushArgs...)
 	}
@@ -173,12 +176,9 @@ func (i *IptablesManager) BatchApplyAllTProxy(specs []ChainSpec) error {
 
 	i.mu.Lock()
 	defer i.mu.Unlock()
+	defer i.ensureDefaultLocked()
 
-	if err := i.batchApplyBothFamilies(specs, i.buildTProxyBatch); err != nil {
-		return err
-	}
-	i.ipInfraReady = true
-	return nil
+	return i.batchApplyBothFamilies(specs, i.buildTProxyBatch)
 }
 
 func (i *IptablesManager) BatchApplyAllRedirect(specs []ChainSpec) error {
@@ -188,6 +188,7 @@ func (i *IptablesManager) BatchApplyAllRedirect(specs []ChainSpec) error {
 
 	i.mu.Lock()
 	defer i.mu.Unlock()
+	defer i.ensureDefaultLocked()
 	return i.batchApplyBothFamilies(specs, i.buildRedirectBatch)
 }
 

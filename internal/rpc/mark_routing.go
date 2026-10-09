@@ -27,9 +27,16 @@ func (s *VpnerServer) syncMarkRouting(vpnType, chainName string, resolve func(st
 	if !vpnkind.IsRouterManaged(vpnType) {
 		return nil
 	}
+	ipsetName, err := firewall.IpsetName(vpnType, chainName)
+	if err != nil {
+		return err
+	}
 
 	s.markMu.Lock()
 	defer s.markMu.Unlock()
+	if !s.iptables.MarkRouteKnown(ipsetName) && s.unblock.RuleCount(vpnType, chainName) == 0 && !s.isDefaultRoute(vpnType, chainName) {
+		return nil
+	}
 	return s.iptables.SyncMark(vpnType, chainName, func() (string, error) {
 		return resolve(chainName)
 	})
@@ -46,7 +53,7 @@ func (s *VpnerServer) removeMarkRouting(vpnType, chainName string) error {
 }
 
 func (s *VpnerServer) dropMarkRoutingIfUnused(vpnType, chainName string) error {
-	if !vpnkind.IsRouterManaged(vpnType) {
+	if !vpnkind.IsRouterManaged(vpnType) || s.isDefaultRoute(vpnType, chainName) {
 		return nil
 	}
 
@@ -56,6 +63,18 @@ func (s *VpnerServer) dropMarkRoutingIfUnused(vpnType, chainName string) error {
 		return nil
 	}
 	return s.iptables.RemoveMark(vpnType, chainName)
+}
+
+func (s *VpnerServer) logMarkSyncError(group firewall.RuleGroup, err error) {
+	if !errors.Is(err, netif.ErrInterfaceDown) {
+		logx.Warnf("restore %s routing for %s: %v", group.TypeName, group.ChainName, err)
+		return
+	}
+	if s.isDefaultRoute(group.TypeName, group.ChainName) {
+		logx.Warnf("default route via %s inactive: interface down, LAN traffic is using the WAN", group.ChainName)
+		return
+	}
+	logx.Debugf("skip %s routing for %s: %v", group.TypeName, group.ChainName, err)
 }
 
 func (s *VpnerServer) handleInterfaceEvent(id, sysname, event string) {
@@ -81,15 +100,12 @@ func (s *VpnerServer) handleInterfaceEvent(id, sysname, event string) {
 			continue
 		}
 		if err := s.syncMarkRouting(group.TypeName, group.ChainName, resolve); err != nil {
-			if errors.Is(err, netif.ErrInterfaceDown) {
-				logx.Debugf("interface %s up event but no address yet: %v", id, err)
-			} else {
-				logx.Warnf("interface %s up: restore routing: %v", id, err)
-			}
+			s.logMarkSyncError(group, err)
 			continue
 		}
 		logx.Infof("interface %s up: routing restored", id)
 	}
+	s.iptables.RefreshDefaultRoute()
 }
 
 func (s *VpnerServer) RestoreMarkRouting(table string) {
@@ -100,11 +116,7 @@ func (s *VpnerServer) RestoreMarkRouting(table string) {
 	resolve := s.ifManager.SystemNameResolver()
 	for _, group := range s.markRoutedGroups() {
 		if err := s.syncMarkRouting(group.TypeName, group.ChainName, resolve); err != nil {
-			if errors.Is(err, netif.ErrInterfaceDown) {
-				logx.Debugf("skip %s routing for %s: %v", group.TypeName, group.ChainName, err)
-			} else {
-				logx.Warnf("restore %s routing for %s: %v", group.TypeName, group.ChainName, err)
-			}
+			s.logMarkSyncError(group, err)
 		}
 	}
 }
@@ -119,11 +131,22 @@ func (s *VpnerServer) MarkRoutingHealthy() bool {
 }
 
 func (s *VpnerServer) markRoutedGroups() []firewall.RuleGroup {
+	d := s.defaultRoute()
+	defaultSeen := false
 	var out []firewall.RuleGroup
 	for _, group := range s.unblock.Groups() {
-		if vpnkind.IsRouterManaged(group.TypeName) && len(group.Rules) > 0 {
-			out = append(out, group)
+		if !vpnkind.IsRouterManaged(group.TypeName) {
+			continue
 		}
+		isDefault := d.set() && group.TypeName == d.Type && group.ChainName == d.Chain
+		if len(group.Rules) == 0 && !isDefault {
+			continue
+		}
+		defaultSeen = defaultSeen || isDefault
+		out = append(out, group)
+	}
+	if d.set() && !defaultSeen && vpnkind.IsRouterManaged(d.Type) && s.targetExists(d) {
+		out = append(out, firewall.RuleGroup{TypeName: d.Type, ChainName: d.Chain})
 	}
 	return out
 }

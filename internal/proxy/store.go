@@ -21,6 +21,7 @@ type chainMeta struct {
 	Port        int    `json:"port"`
 	InboundPort int    `json:"inbound_port"`
 	AutoRun     bool   `json:"auto_run"`
+	XUDPBaseKey string `json:"xudp_base_key,omitempty"`
 }
 
 type store struct {

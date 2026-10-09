@@ -153,6 +153,7 @@ func (i *IptablesManager) extendMarkRoute(ipsetName, iface string) error {
 
 	i.mu.Lock()
 	defer i.mu.Unlock()
+	defer i.ensureDefaultLocked()
 
 	if err := i.extendMarkRouteForFamily(familyV4, i.routingV4, ipsetName, iface); err != nil {
 		return err

@@ -6,6 +6,7 @@ import (
 	"net"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/ApostolDmitry/vpner/internal/logx"
@@ -37,6 +38,7 @@ type IpRuleManager struct {
 	ipsetStaleQueries int
 	entryTimeout      int
 	dnsTTLClamp       int
+	defaultRoute      atomic.Bool
 }
 
 const (
@@ -85,9 +87,18 @@ func (m *IpRuleManager) AsyncSync() bool {
 	return m != nil && m.entryTimeout <= 0
 }
 
+func (m *IpRuleManager) SetDefaultRoute(active bool) {
+	if m != nil {
+		m.defaultRoute.Store(active)
+	}
+}
+
 func (m *IpRuleManager) DropAAAA(domain string) bool {
 	if m == nil || m.ipv6Enabled || m.matcher == nil {
 		return false
+	}
+	if m.defaultRoute.Load() {
+		return true
 	}
 	_, _, _, ok := m.matcher.MatchDomain(domain)
 	return ok
@@ -401,7 +412,9 @@ func (m *IpRuleManager) syncResolvedIPs(vpnType, chainName, rule, domain string,
 	}
 
 	deletedAny := false
-	if m.ipsetStaleQueries > 0 {
+	switch {
+	case m.ipsetStaleQueries < 0:
+	case m.ipsetStaleQueries > 0:
 		key := buildStaleKey(ipsetName, comment)
 		stale := m.registry.CollectStaleEntries(key, existing, resolvedSet, m.ipsetStaleQueries)
 		var deleted []string
@@ -418,7 +431,7 @@ func (m *IpRuleManager) syncResolvedIPs(vpnType, chainName, rule, domain string,
 
 		deletedAny = len(deleted) > 0
 		m.registry.ConfirmStaleDeleted(key, deleted)
-	} else {
+	default:
 		for _, entry := range existing {
 			if _, ok := resolvedSet[entry]; ok {
 				continue

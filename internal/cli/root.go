@@ -20,9 +20,10 @@ var (
 	resolvedDefaultChain string
 
 	rootCmd = &cobra.Command{
-		Use:     "vpnerctl",
-		Short:   "CLI for managing vpnerd",
-		Version: buildinfo.String(),
+		Use:          "vpnerctl",
+		Short:        "CLI for managing vpnerd",
+		Version:      buildinfo.String(),
+		SilenceUsage: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			if rt != nil {
 				return nil
@@ -68,6 +69,7 @@ func init() {
 	rootCmd.AddCommand(statusCmd())
 	rootCmd.AddCommand(updateCmd())
 	rootCmd.AddCommand(syncCmd())
+	rootCmd.AddCommand(routeCmd)
 	rootCmd.AddCommand(dnsCmd)
 	rootCmd.AddCommand(unblockCmd)
 	rootCmd.AddCommand(interfaceCmd)

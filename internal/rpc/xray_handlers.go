@@ -38,15 +38,20 @@ func (s *VpnerServer) XrayList(_ context.Context, _ *grpcpb.Empty) (*grpcpb.Xray
 func (s *VpnerServer) XrayManage(_ context.Context, req *grpcpb.XrayManageRequest) (*grpcpb.GenericResponse, error) {
 	switch req.Act {
 	case grpcpb.ManageAction_START:
+		s.xrayMu.Lock()
+		defer s.xrayMu.Unlock()
 		if err := s.xrayService.StartOne(req.ChainName); err != nil {
 			return errorGeneric(fmt.Sprintf("Failed to start Xray: %v", err)), nil
 		}
 		if err := s.applyXrayRouting(req.ChainName); err != nil {
 			_ = s.xrayService.StopOne(req.ChainName)
+			_ = s.removeXrayRouting(req.ChainName)
 			return errorGeneric(fmt.Sprintf("Failed to configure routing: %v", err)), nil
 		}
 		return successGeneric(fmt.Sprintf("Xray started successfully: %s", req.ChainName)), nil
 	case grpcpb.ManageAction_STOP:
+		s.xrayMu.Lock()
+		defer s.xrayMu.Unlock()
 		if err := s.xrayService.StopOne(req.ChainName); err != nil {
 			return errorGeneric(fmt.Sprintf("Failed to stop Xray: %v", err)), nil
 		}
@@ -108,11 +113,14 @@ func (s *VpnerServer) XrayCreate(_ context.Context, req *grpcpb.XrayCreateReques
 		return errorGeneric(fmt.Sprintf("Failed to create Xray: %v", err)), nil
 	}
 	if req.AutoRun {
+		s.xrayMu.Lock()
+		defer s.xrayMu.Unlock()
 		if err := s.xrayService.StartOne(name); err != nil {
 			return errorGeneric(fmt.Sprintf("Xray created as %s but failed to start: %v", name, err)), nil
 		}
 		if err := s.applyXrayRouting(name); err != nil {
 			_ = s.xrayService.StopOne(name)
+			_ = s.removeXrayRouting(name)
 			return errorGeneric(fmt.Sprintf("Failed to configure routing: %v", err)), nil
 		}
 	}
@@ -132,12 +140,15 @@ func (s *VpnerServer) XrayUpdate(_ context.Context, req *grpcpb.XrayUpdateReques
 	if err := s.xrayService.Update(req.ChainName, req.Link); err != nil {
 		return errorGeneric(fmt.Sprintf("Failed to update Xray: %v", err)), nil
 	}
+	s.xrayMu.Lock()
+	defer s.xrayMu.Unlock()
 	if s.xrayService.IsRunning(req.ChainName) {
 		if err := s.xrayService.StopOne(req.ChainName); err != nil {
 			return errorGeneric(fmt.Sprintf("Failed to stop Xray for restart: %v", err)), nil
 		}
 		if err := s.xrayService.StartOne(req.ChainName); err != nil {
-			return errorGeneric(fmt.Sprintf("Xray updated as %s but failed to restart: %v", req.ChainName, err)), nil
+			_ = s.removeXrayRouting(req.ChainName)
+			return errorGeneric(fmt.Sprintf("Xray updated as %s but failed to restart (routing removed): %v", req.ChainName, err)), nil
 		}
 	}
 	return successGeneric(fmt.Sprintf("Xray updated successfully: %s", req.ChainName)), nil
@@ -152,6 +163,11 @@ func (s *VpnerServer) XrayTest(_ context.Context, req *grpcpb.XrayRequest) (*grp
 }
 
 func (s *VpnerServer) XrayDelete(_ context.Context, req *grpcpb.XrayRequest) (*grpcpb.GenericResponse, error) {
+	if s.isDefaultRoute(vpnkind.Xray.String(), req.ChainName) {
+		return errorGeneric(fmt.Sprintf("Chain %s is the default route; run 'vpnerctl route split' first", req.ChainName)), nil
+	}
+	s.xrayMu.Lock()
+	defer s.xrayMu.Unlock()
 	if s.xrayService.IsRunning(req.ChainName) {
 		if err := s.xrayService.StopOne(req.ChainName); err != nil {
 			return errorGeneric(fmt.Sprintf("Failed to stop Xray: %v", err)), nil

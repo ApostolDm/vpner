@@ -62,18 +62,24 @@ var (
 )
 
 type IptablesManager struct {
-	mu            sync.Mutex
-	routingV4     map[string]vpnRoutingInfo
-	routingV6     map[string]vpnRoutingInfo
-	ipv6Enabled   bool
-	tproxyEnabled bool
-	ipInfraReady  bool
-	entryTimeout  int
-	exceptionsV4  []string
-	exceptionsV6  []string
-	lanIfaces     []string
-	connmarkV4    *bool
-	connmarkV6    *bool
+	mu              sync.Mutex
+	routingV4       map[string]vpnRoutingInfo
+	routingV6       map[string]vpnRoutingInfo
+	ipv6Enabled     bool
+	tproxyEnabled   bool
+	entryTimeout    int
+	exceptionsV4    []string
+	exceptionsV6    []string
+	lanIfaces       []string
+	connmarkV4      *bool
+	connmarkV6      *bool
+	defaultTarget   *defaultTarget
+	defaultV4       defaultApplied
+	defaultV6       defaultApplied
+	defaultErr      error
+	defaultObserver func(bool)
+	ctdirV4         *bool
+	ctdirV6         *bool
 }
 
 type ChainSpec struct {

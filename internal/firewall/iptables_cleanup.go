@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/ApostolDmitry/vpner/internal/logx"
@@ -25,29 +26,54 @@ func (i *IptablesManager) cleanupOldIPRulesAndRoutes(f ipFamily) {
 		return
 	}
 
+	seen := make(map[int]bool)
 	scanner := bufio.NewScanner(strings.NewReader(string(out)))
 	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.Contains(line, "fwmark") || !strings.Contains(line, "lookup") {
+		fwmark, tableID, ok := parseFwmarkRule(scanner.Text())
+		if !ok || fwmark != tableID || fwmark < 100 || fwmark > 0xFFF+100 || seen[fwmark] {
 			continue
 		}
-		parts := strings.Fields(line)
-		var fwmark, tableID int
-		for idx, p := range parts {
-			if p == "fwmark" && idx+1 < len(parts) {
-				fmt.Sscanf(parts[idx+1], "%d", &fwmark)
-			}
-			if p == "lookup" && idx+1 < len(parts) {
-				fmt.Sscanf(parts[idx+1], "%d", &tableID)
-			}
+		seen[fwmark] = true
+		logx.Infof("cleanup ip rule fwmark=%d table=%d", fwmark, tableID)
+		deleteIPRule(f, fwmark, tableID)
+		logx.Infof("flush route table %d", tableID)
+		flushArgs := append(f.ipFlags, "route", "flush", "table", fmt.Sprintf("%d", tableID))
+		tryRun("ip", flushArgs...)
+	}
+}
+
+func parseFwmarkRule(line string) (fwmark, tableID int, ok bool) {
+	parts := strings.Fields(line)
+	for idx, p := range parts {
+		if idx+1 >= len(parts) {
+			break
 		}
-		if fwmark == tableID && fwmark >= 100 && fwmark <= 0xFFF+100 {
-			logx.Infof("cleanup ip rule fwmark=%d table=%d", fwmark, tableID)
-			delArgs := append(f.ipFlags, "rule", "del", "fwmark", fmt.Sprintf("%d", fwmark), "table", fmt.Sprintf("%d", tableID))
-			tryRun("ip", delArgs...)
-			logx.Infof("flush route table %d", tableID)
-			flushArgs := append(f.ipFlags, "route", "flush", "table", fmt.Sprintf("%d", tableID))
-			tryRun("ip", flushArgs...)
+		switch p {
+		case "fwmark":
+			value, _, _ := strings.Cut(parts[idx+1], "/")
+			n, err := strconv.ParseInt(value, 0, 32)
+			if err != nil {
+				return 0, 0, false
+			}
+			fwmark = int(n)
+		case "lookup", "table":
+			n, err := strconv.Atoi(parts[idx+1])
+			if err != nil {
+				return 0, 0, false
+			}
+			tableID = int(n)
+		}
+	}
+	return fwmark, tableID, fwmark != 0 && tableID != 0
+}
+
+func deleteIPRule(f ipFamily, mark, tableID int) {
+	markStr, tableStr := fmt.Sprintf("%d", mark), fmt.Sprintf("%d", tableID)
+	delArgs := append(f.ipFlags, "rule", "del", "fwmark", markStr, "table", tableStr)
+	for attempt := 0; attempt < 32 && ipRuleExists(f, markStr, tableStr); attempt++ {
+		if err := run("ip", delArgs...); err != nil {
+			logx.Debugf("network: ip rule del: %v", err)
+			return
 		}
 	}
 }

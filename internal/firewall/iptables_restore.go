@@ -17,18 +17,10 @@ func (i *IptablesManager) RestoreRouting(table string, restoreV4, restoreV6 bool
 	if !restoreV4 && !restoreV6 {
 		return
 	}
+	defer i.ensureDefaultLocked()
 
-	xrayApplied := false
-	if i.restoreXrayFamily(restoreV4, familyV4, i.routingV4, table) {
-		xrayApplied = true
-	}
-	if i.restoreXrayFamily(restoreV6, familyV6, i.routingV6, table) {
-		xrayApplied = true
-	}
-
-	if i.tproxyEnabled && xrayApplied {
-		i.ipInfraReady = true
-	}
+	i.restoreXrayFamily(restoreV4, familyV4, i.routingV4, table)
+	i.restoreXrayFamily(restoreV6, familyV6, i.routingV6, table)
 }
 
 func (i *IptablesManager) restoreXrayFamily(enabled bool, f ipFamily, routing map[string]vpnRoutingInfo, table string) bool {

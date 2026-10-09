@@ -19,15 +19,16 @@ type StatusInfo struct {
 }
 
 type Dependencies struct {
-	DNS         *resolver.Service
-	Upstream    *resolver.Upstream
-	IPRules     *firewall.IpRuleManager
-	Unblock     *firewall.UnblockManager
-	Interfaces  *netif.Manager
-	Xray        *proxysvc.Service
-	Iptables    *firewall.IptablesManager
-	Info        StatusInfo
-	IPSetCounts func() (v4, v6 int64)
+	DNS              *resolver.Service
+	Upstream         *resolver.Upstream
+	IPRules          *firewall.IpRuleManager
+	Unblock          *firewall.UnblockManager
+	Interfaces       *netif.Manager
+	Xray             *proxysvc.Service
+	Iptables         *firewall.IptablesManager
+	Info             StatusInfo
+	IPSetCounts      func() (v4, v6 int64)
+	DefaultRouteFile string
 }
 
 type VpnerServer struct {
@@ -40,6 +41,11 @@ type VpnerServer struct {
 	xrayService *proxysvc.Service
 	iptables    *firewall.IptablesManager
 	markMu      sync.Mutex
+	xrayMu      sync.Mutex
+	routeMu     sync.Mutex
+	routeOpMu   sync.Mutex
+	route       defaultRoute
+	routeFile   string
 	info        StatusInfo
 	ipsetCounts func() (v4, v6 int64)
 }
@@ -53,6 +59,7 @@ func NewVpnerServer(deps Dependencies) *VpnerServer {
 		ifManager:   deps.Interfaces,
 		xrayService: deps.Xray,
 		iptables:    deps.Iptables,
+		routeFile:   deps.DefaultRouteFile,
 		info:        deps.Info,
 		ipsetCounts: deps.IPSetCounts,
 	}

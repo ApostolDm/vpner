@@ -19,24 +19,25 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	VpnerManager_UnblockList_FullMethodName    = "/vpner.VpnerManager/UnblockList"
-	VpnerManager_UnblockAdd_FullMethodName     = "/vpner.VpnerManager/UnblockAdd"
-	VpnerManager_UnblockDel_FullMethodName     = "/vpner.VpnerManager/UnblockDel"
-	VpnerManager_InterfaceList_FullMethodName  = "/vpner.VpnerManager/InterfaceList"
-	VpnerManager_InterfaceScan_FullMethodName  = "/vpner.VpnerManager/InterfaceScan"
-	VpnerManager_InterfaceAdd_FullMethodName   = "/vpner.VpnerManager/InterfaceAdd"
-	VpnerManager_InterfaceDel_FullMethodName   = "/vpner.VpnerManager/InterfaceDel"
-	VpnerManager_DnsManage_FullMethodName      = "/vpner.VpnerManager/DnsManage"
-	VpnerManager_XrayCreate_FullMethodName     = "/vpner.VpnerManager/XrayCreate"
-	VpnerManager_XrayUpdate_FullMethodName     = "/vpner.VpnerManager/XrayUpdate"
-	VpnerManager_XrayDelete_FullMethodName     = "/vpner.VpnerManager/XrayDelete"
-	VpnerManager_XrayList_FullMethodName       = "/vpner.VpnerManager/XrayList"
-	VpnerManager_XrayManage_FullMethodName     = "/vpner.VpnerManager/XrayManage"
-	VpnerManager_XrayTest_FullMethodName       = "/vpner.VpnerManager/XrayTest"
-	VpnerManager_XraySetAutorun_FullMethodName = "/vpner.VpnerManager/XraySetAutorun"
-	VpnerManager_HookRestore_FullMethodName    = "/vpner.VpnerManager/HookRestore"
-	VpnerManager_Status_FullMethodName         = "/vpner.VpnerManager/Status"
-	VpnerManager_SyncRules_FullMethodName      = "/vpner.VpnerManager/SyncRules"
+	VpnerManager_UnblockList_FullMethodName     = "/vpner.VpnerManager/UnblockList"
+	VpnerManager_UnblockAdd_FullMethodName      = "/vpner.VpnerManager/UnblockAdd"
+	VpnerManager_UnblockDel_FullMethodName      = "/vpner.VpnerManager/UnblockDel"
+	VpnerManager_InterfaceList_FullMethodName   = "/vpner.VpnerManager/InterfaceList"
+	VpnerManager_InterfaceScan_FullMethodName   = "/vpner.VpnerManager/InterfaceScan"
+	VpnerManager_InterfaceAdd_FullMethodName    = "/vpner.VpnerManager/InterfaceAdd"
+	VpnerManager_InterfaceDel_FullMethodName    = "/vpner.VpnerManager/InterfaceDel"
+	VpnerManager_DnsManage_FullMethodName       = "/vpner.VpnerManager/DnsManage"
+	VpnerManager_XrayCreate_FullMethodName      = "/vpner.VpnerManager/XrayCreate"
+	VpnerManager_XrayUpdate_FullMethodName      = "/vpner.VpnerManager/XrayUpdate"
+	VpnerManager_XrayDelete_FullMethodName      = "/vpner.VpnerManager/XrayDelete"
+	VpnerManager_XrayList_FullMethodName        = "/vpner.VpnerManager/XrayList"
+	VpnerManager_XrayManage_FullMethodName      = "/vpner.VpnerManager/XrayManage"
+	VpnerManager_XrayTest_FullMethodName        = "/vpner.VpnerManager/XrayTest"
+	VpnerManager_XraySetAutorun_FullMethodName  = "/vpner.VpnerManager/XraySetAutorun"
+	VpnerManager_HookRestore_FullMethodName     = "/vpner.VpnerManager/HookRestore"
+	VpnerManager_Status_FullMethodName          = "/vpner.VpnerManager/Status"
+	VpnerManager_SyncRules_FullMethodName       = "/vpner.VpnerManager/SyncRules"
+	VpnerManager_SetDefaultRoute_FullMethodName = "/vpner.VpnerManager/SetDefaultRoute"
 )
 
 // VpnerManagerClient is the client API for VpnerManager service.
@@ -67,6 +68,8 @@ type VpnerManagerClient interface {
 	Status(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*StatusResponse, error)
 	// Re-populate ipset entries for all unblock rules (static IPs + concrete domains).
 	SyncRules(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*GenericResponse, error)
+	// Route all LAN internet traffic through one chain (empty chain_name = back to per-rule routing).
+	SetDefaultRoute(ctx context.Context, in *DefaultRouteRequest, opts ...grpc.CallOption) (*GenericResponse, error)
 }
 
 type vpnerManagerClient struct {
@@ -257,6 +260,16 @@ func (c *vpnerManagerClient) SyncRules(ctx context.Context, in *Empty, opts ...g
 	return out, nil
 }
 
+func (c *vpnerManagerClient) SetDefaultRoute(ctx context.Context, in *DefaultRouteRequest, opts ...grpc.CallOption) (*GenericResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GenericResponse)
+	err := c.cc.Invoke(ctx, VpnerManager_SetDefaultRoute_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // VpnerManagerServer is the server API for VpnerManager service.
 // All implementations must embed UnimplementedVpnerManagerServer
 // for forward compatibility.
@@ -285,6 +298,8 @@ type VpnerManagerServer interface {
 	Status(context.Context, *Empty) (*StatusResponse, error)
 	// Re-populate ipset entries for all unblock rules (static IPs + concrete domains).
 	SyncRules(context.Context, *Empty) (*GenericResponse, error)
+	// Route all LAN internet traffic through one chain (empty chain_name = back to per-rule routing).
+	SetDefaultRoute(context.Context, *DefaultRouteRequest) (*GenericResponse, error)
 	mustEmbedUnimplementedVpnerManagerServer()
 }
 
@@ -348,6 +363,9 @@ func (UnimplementedVpnerManagerServer) Status(context.Context, *Empty) (*StatusR
 }
 func (UnimplementedVpnerManagerServer) SyncRules(context.Context, *Empty) (*GenericResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SyncRules not implemented")
+}
+func (UnimplementedVpnerManagerServer) SetDefaultRoute(context.Context, *DefaultRouteRequest) (*GenericResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetDefaultRoute not implemented")
 }
 func (UnimplementedVpnerManagerServer) mustEmbedUnimplementedVpnerManagerServer() {}
 func (UnimplementedVpnerManagerServer) testEmbeddedByValue()                      {}
@@ -694,6 +712,24 @@ func _VpnerManager_SyncRules_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _VpnerManager_SetDefaultRoute_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DefaultRouteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(VpnerManagerServer).SetDefaultRoute(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: VpnerManager_SetDefaultRoute_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(VpnerManagerServer).SetDefaultRoute(ctx, req.(*DefaultRouteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // VpnerManager_ServiceDesc is the grpc.ServiceDesc for VpnerManager service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -772,6 +808,10 @@ var VpnerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SyncRules",
 			Handler:    _VpnerManager_SyncRules_Handler,
+		},
+		{
+			MethodName: "SetDefaultRoute",
+			Handler:    _VpnerManager_SetDefaultRoute_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

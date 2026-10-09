@@ -36,6 +36,7 @@ type StatusResponse struct {
 	IpsetEntriesV4   int64                  `protobuf:"varint,11,opt,name=ipset_entries_v4,json=ipsetEntriesV4,proto3" json:"ipset_entries_v4,omitempty"`
 	IpsetEntriesV6   int64                  `protobuf:"varint,12,opt,name=ipset_entries_v6,json=ipsetEntriesV6,proto3" json:"ipset_entries_v6,omitempty"`
 	RuntimeStats     *RuntimeStats          `protobuf:"bytes,13,opt,name=runtime_stats,json=runtimeStats,proto3" json:"runtime_stats,omitempty"`
+	DefaultRoute     *DefaultRouteStatus    `protobuf:"bytes,14,opt,name=default_route,json=defaultRoute,proto3" json:"default_route,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -161,6 +162,125 @@ func (x *StatusResponse) GetRuntimeStats() *RuntimeStats {
 	return nil
 }
 
+func (x *StatusResponse) GetDefaultRoute() *DefaultRouteStatus {
+	if x != nil {
+		return x.DefaultRoute
+	}
+	return nil
+}
+
+type DefaultRouteRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ChainName     string                 `protobuf:"bytes,1,opt,name=chain_name,json=chainName,proto3" json:"chain_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DefaultRouteRequest) Reset() {
+	*x = DefaultRouteRequest{}
+	mi := &file_vpner_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DefaultRouteRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DefaultRouteRequest) ProtoMessage() {}
+
+func (x *DefaultRouteRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_vpner_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DefaultRouteRequest.ProtoReflect.Descriptor instead.
+func (*DefaultRouteRequest) Descriptor() ([]byte, []int) {
+	return file_vpner_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *DefaultRouteRequest) GetChainName() string {
+	if x != nil {
+		return x.ChainName
+	}
+	return ""
+}
+
+type DefaultRouteStatus struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ChainName     string                 `protobuf:"bytes,1,opt,name=chain_name,json=chainName,proto3" json:"chain_name,omitempty"`
+	Type          string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
+	Active        bool                   `protobuf:"varint,3,opt,name=active,proto3" json:"active,omitempty"`
+	Reason        string                 `protobuf:"bytes,4,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DefaultRouteStatus) Reset() {
+	*x = DefaultRouteStatus{}
+	mi := &file_vpner_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DefaultRouteStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DefaultRouteStatus) ProtoMessage() {}
+
+func (x *DefaultRouteStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_vpner_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DefaultRouteStatus.ProtoReflect.Descriptor instead.
+func (*DefaultRouteStatus) Descriptor() ([]byte, []int) {
+	return file_vpner_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *DefaultRouteStatus) GetChainName() string {
+	if x != nil {
+		return x.ChainName
+	}
+	return ""
+}
+
+func (x *DefaultRouteStatus) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *DefaultRouteStatus) GetActive() bool {
+	if x != nil {
+		return x.Active
+	}
+	return false
+}
+
+func (x *DefaultRouteStatus) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
 type RuntimeStats struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	HeapAllocBytes   uint64                 `protobuf:"varint,1,opt,name=heap_alloc_bytes,json=heapAllocBytes,proto3" json:"heap_alloc_bytes,omitempty"`
@@ -175,7 +295,7 @@ type RuntimeStats struct {
 
 func (x *RuntimeStats) Reset() {
 	*x = RuntimeStats{}
-	mi := &file_vpner_proto_msgTypes[1]
+	mi := &file_vpner_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -187,7 +307,7 @@ func (x *RuntimeStats) String() string {
 func (*RuntimeStats) ProtoMessage() {}
 
 func (x *RuntimeStats) ProtoReflect() protoreflect.Message {
-	mi := &file_vpner_proto_msgTypes[1]
+	mi := &file_vpner_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -200,7 +320,7 @@ func (x *RuntimeStats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RuntimeStats.ProtoReflect.Descriptor instead.
 func (*RuntimeStats) Descriptor() ([]byte, []int) {
-	return file_vpner_proto_rawDescGZIP(), []int{1}
+	return file_vpner_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *RuntimeStats) GetHeapAllocBytes() uint64 {
@@ -259,7 +379,7 @@ type QueryStats struct {
 
 func (x *QueryStats) Reset() {
 	*x = QueryStats{}
-	mi := &file_vpner_proto_msgTypes[2]
+	mi := &file_vpner_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -271,7 +391,7 @@ func (x *QueryStats) String() string {
 func (*QueryStats) ProtoMessage() {}
 
 func (x *QueryStats) ProtoReflect() protoreflect.Message {
-	mi := &file_vpner_proto_msgTypes[2]
+	mi := &file_vpner_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -284,7 +404,7 @@ func (x *QueryStats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryStats.ProtoReflect.Descriptor instead.
 func (*QueryStats) Descriptor() ([]byte, []int) {
-	return file_vpner_proto_rawDescGZIP(), []int{2}
+	return file_vpner_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *QueryStats) GetTotal() int64 {
@@ -340,7 +460,7 @@ type LogEvent struct {
 
 func (x *LogEvent) Reset() {
 	*x = LogEvent{}
-	mi := &file_vpner_proto_msgTypes[3]
+	mi := &file_vpner_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -352,7 +472,7 @@ func (x *LogEvent) String() string {
 func (*LogEvent) ProtoMessage() {}
 
 func (x *LogEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_vpner_proto_msgTypes[3]
+	mi := &file_vpner_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -365,7 +485,7 @@ func (x *LogEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogEvent.ProtoReflect.Descriptor instead.
 func (*LogEvent) Descriptor() ([]byte, []int) {
-	return file_vpner_proto_rawDescGZIP(), []int{3}
+	return file_vpner_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *LogEvent) GetUnixMs() int64 {
@@ -407,7 +527,7 @@ type ChainStatus struct {
 
 func (x *ChainStatus) Reset() {
 	*x = ChainStatus{}
-	mi := &file_vpner_proto_msgTypes[4]
+	mi := &file_vpner_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -419,7 +539,7 @@ func (x *ChainStatus) String() string {
 func (*ChainStatus) ProtoMessage() {}
 
 func (x *ChainStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_vpner_proto_msgTypes[4]
+	mi := &file_vpner_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -432,7 +552,7 @@ func (x *ChainStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChainStatus.ProtoReflect.Descriptor instead.
 func (*ChainStatus) Descriptor() ([]byte, []int) {
-	return file_vpner_proto_rawDescGZIP(), []int{4}
+	return file_vpner_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ChainStatus) GetName() string {
@@ -517,7 +637,7 @@ type DohServerStatus struct {
 
 func (x *DohServerStatus) Reset() {
 	*x = DohServerStatus{}
-	mi := &file_vpner_proto_msgTypes[5]
+	mi := &file_vpner_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -529,7 +649,7 @@ func (x *DohServerStatus) String() string {
 func (*DohServerStatus) ProtoMessage() {}
 
 func (x *DohServerStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_vpner_proto_msgTypes[5]
+	mi := &file_vpner_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -542,7 +662,7 @@ func (x *DohServerStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DohServerStatus.ProtoReflect.Descriptor instead.
 func (*DohServerStatus) Descriptor() ([]byte, []int) {
-	return file_vpner_proto_rawDescGZIP(), []int{5}
+	return file_vpner_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *DohServerStatus) GetServer() string {
@@ -581,7 +701,7 @@ type Empty struct {
 
 func (x *Empty) Reset() {
 	*x = Empty{}
-	mi := &file_vpner_proto_msgTypes[6]
+	mi := &file_vpner_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -593,7 +713,7 @@ func (x *Empty) String() string {
 func (*Empty) ProtoMessage() {}
 
 func (x *Empty) ProtoReflect() protoreflect.Message {
-	mi := &file_vpner_proto_msgTypes[6]
+	mi := &file_vpner_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -606,7 +726,7 @@ func (x *Empty) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Empty.ProtoReflect.Descriptor instead.
 func (*Empty) Descriptor() ([]byte, []int) {
-	return file_vpner_proto_rawDescGZIP(), []int{6}
+	return file_vpner_proto_rawDescGZIP(), []int{8}
 }
 
 type GenericResponse struct {
@@ -622,7 +742,7 @@ type GenericResponse struct {
 
 func (x *GenericResponse) Reset() {
 	*x = GenericResponse{}
-	mi := &file_vpner_proto_msgTypes[7]
+	mi := &file_vpner_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -634,7 +754,7 @@ func (x *GenericResponse) String() string {
 func (*GenericResponse) ProtoMessage() {}
 
 func (x *GenericResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vpner_proto_msgTypes[7]
+	mi := &file_vpner_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -647,7 +767,7 @@ func (x *GenericResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GenericResponse.ProtoReflect.Descriptor instead.
 func (*GenericResponse) Descriptor() ([]byte, []int) {
-	return file_vpner_proto_rawDescGZIP(), []int{7}
+	return file_vpner_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *GenericResponse) GetResult() isGenericResponse_Result {
@@ -700,7 +820,7 @@ type Success struct {
 
 func (x *Success) Reset() {
 	*x = Success{}
-	mi := &file_vpner_proto_msgTypes[8]
+	mi := &file_vpner_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -712,7 +832,7 @@ func (x *Success) String() string {
 func (*Success) ProtoMessage() {}
 
 func (x *Success) ProtoReflect() protoreflect.Message {
-	mi := &file_vpner_proto_msgTypes[8]
+	mi := &file_vpner_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -725,7 +845,7 @@ func (x *Success) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Success.ProtoReflect.Descriptor instead.
 func (*Success) Descriptor() ([]byte, []int) {
-	return file_vpner_proto_rawDescGZIP(), []int{8}
+	return file_vpner_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Success) GetMessage() string {
@@ -744,7 +864,7 @@ type Error struct {
 
 func (x *Error) Reset() {
 	*x = Error{}
-	mi := &file_vpner_proto_msgTypes[9]
+	mi := &file_vpner_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -756,7 +876,7 @@ func (x *Error) String() string {
 func (*Error) ProtoMessage() {}
 
 func (x *Error) ProtoReflect() protoreflect.Message {
-	mi := &file_vpner_proto_msgTypes[9]
+	mi := &file_vpner_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -769,7 +889,7 @@ func (x *Error) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Error.ProtoReflect.Descriptor instead.
 func (*Error) Descriptor() ([]byte, []int) {
-	return file_vpner_proto_rawDescGZIP(), []int{9}
+	return file_vpner_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *Error) GetMessage() string {
@@ -788,7 +908,7 @@ type UnblockListResponse struct {
 
 func (x *UnblockListResponse) Reset() {
 	*x = UnblockListResponse{}
-	mi := &file_vpner_proto_msgTypes[10]
+	mi := &file_vpner_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -800,7 +920,7 @@ func (x *UnblockListResponse) String() string {
 func (*UnblockListResponse) ProtoMessage() {}
 
 func (x *UnblockListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vpner_proto_msgTypes[10]
+	mi := &file_vpner_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -813,7 +933,7 @@ func (x *UnblockListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnblockListResponse.ProtoReflect.Descriptor instead.
 func (*UnblockListResponse) Descriptor() ([]byte, []int) {
-	return file_vpner_proto_rawDescGZIP(), []int{10}
+	return file_vpner_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *UnblockListResponse) GetRules() []*UnblockInfo {
@@ -833,7 +953,7 @@ type UnblockAddRequest struct {
 
 func (x *UnblockAddRequest) Reset() {
 	*x = UnblockAddRequest{}
-	mi := &file_vpner_proto_msgTypes[11]
+	mi := &file_vpner_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -845,7 +965,7 @@ func (x *UnblockAddRequest) String() string {
 func (*UnblockAddRequest) ProtoMessage() {}
 
 func (x *UnblockAddRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vpner_proto_msgTypes[11]
+	mi := &file_vpner_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -858,7 +978,7 @@ func (x *UnblockAddRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnblockAddRequest.ProtoReflect.Descriptor instead.
 func (*UnblockAddRequest) Descriptor() ([]byte, []int) {
-	return file_vpner_proto_rawDescGZIP(), []int{11}
+	return file_vpner_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *UnblockAddRequest) GetDomain() string {
@@ -884,7 +1004,7 @@ type UnblockDelRequest struct {
 
 func (x *UnblockDelRequest) Reset() {
 	*x = UnblockDelRequest{}
-	mi := &file_vpner_proto_msgTypes[12]
+	mi := &file_vpner_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -896,7 +1016,7 @@ func (x *UnblockDelRequest) String() string {
 func (*UnblockDelRequest) ProtoMessage() {}
 
 func (x *UnblockDelRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vpner_proto_msgTypes[12]
+	mi := &file_vpner_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -909,7 +1029,7 @@ func (x *UnblockDelRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnblockDelRequest.ProtoReflect.Descriptor instead.
 func (*UnblockDelRequest) Descriptor() ([]byte, []int) {
-	return file_vpner_proto_rawDescGZIP(), []int{12}
+	return file_vpner_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *UnblockDelRequest) GetDomain() string {
@@ -928,7 +1048,7 @@ type InterfaceListResponse struct {
 
 func (x *InterfaceListResponse) Reset() {
 	*x = InterfaceListResponse{}
-	mi := &file_vpner_proto_msgTypes[13]
+	mi := &file_vpner_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -940,7 +1060,7 @@ func (x *InterfaceListResponse) String() string {
 func (*InterfaceListResponse) ProtoMessage() {}
 
 func (x *InterfaceListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vpner_proto_msgTypes[13]
+	mi := &file_vpner_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -953,7 +1073,7 @@ func (x *InterfaceListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InterfaceListResponse.ProtoReflect.Descriptor instead.
 func (*InterfaceListResponse) Descriptor() ([]byte, []int) {
-	return file_vpner_proto_rawDescGZIP(), []int{13}
+	return file_vpner_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *InterfaceListResponse) GetInterfaces() []*InterfaceInfo {
@@ -972,7 +1092,7 @@ type InterfaceActionRequest struct {
 
 func (x *InterfaceActionRequest) Reset() {
 	*x = InterfaceActionRequest{}
-	mi := &file_vpner_proto_msgTypes[14]
+	mi := &file_vpner_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -984,7 +1104,7 @@ func (x *InterfaceActionRequest) String() string {
 func (*InterfaceActionRequest) ProtoMessage() {}
 
 func (x *InterfaceActionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vpner_proto_msgTypes[14]
+	mi := &file_vpner_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -997,7 +1117,7 @@ func (x *InterfaceActionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InterfaceActionRequest.ProtoReflect.Descriptor instead.
 func (*InterfaceActionRequest) Descriptor() ([]byte, []int) {
-	return file_vpner_proto_rawDescGZIP(), []int{14}
+	return file_vpner_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *InterfaceActionRequest) GetId() string {
@@ -1016,7 +1136,7 @@ type ManageRequest struct {
 
 func (x *ManageRequest) Reset() {
 	*x = ManageRequest{}
-	mi := &file_vpner_proto_msgTypes[15]
+	mi := &file_vpner_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1028,7 +1148,7 @@ func (x *ManageRequest) String() string {
 func (*ManageRequest) ProtoMessage() {}
 
 func (x *ManageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vpner_proto_msgTypes[15]
+	mi := &file_vpner_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1041,7 +1161,7 @@ func (x *ManageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ManageRequest.ProtoReflect.Descriptor instead.
 func (*ManageRequest) Descriptor() ([]byte, []int) {
-	return file_vpner_proto_rawDescGZIP(), []int{15}
+	return file_vpner_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ManageRequest) GetAct() ManageAction {
@@ -1061,7 +1181,7 @@ type XrayCreateRequest struct {
 
 func (x *XrayCreateRequest) Reset() {
 	*x = XrayCreateRequest{}
-	mi := &file_vpner_proto_msgTypes[16]
+	mi := &file_vpner_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1073,7 +1193,7 @@ func (x *XrayCreateRequest) String() string {
 func (*XrayCreateRequest) ProtoMessage() {}
 
 func (x *XrayCreateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vpner_proto_msgTypes[16]
+	mi := &file_vpner_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1086,7 +1206,7 @@ func (x *XrayCreateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use XrayCreateRequest.ProtoReflect.Descriptor instead.
 func (*XrayCreateRequest) Descriptor() ([]byte, []int) {
-	return file_vpner_proto_rawDescGZIP(), []int{16}
+	return file_vpner_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *XrayCreateRequest) GetLink() string {
@@ -1113,7 +1233,7 @@ type XrayUpdateRequest struct {
 
 func (x *XrayUpdateRequest) Reset() {
 	*x = XrayUpdateRequest{}
-	mi := &file_vpner_proto_msgTypes[17]
+	mi := &file_vpner_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1125,7 +1245,7 @@ func (x *XrayUpdateRequest) String() string {
 func (*XrayUpdateRequest) ProtoMessage() {}
 
 func (x *XrayUpdateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vpner_proto_msgTypes[17]
+	mi := &file_vpner_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1138,7 +1258,7 @@ func (x *XrayUpdateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use XrayUpdateRequest.ProtoReflect.Descriptor instead.
 func (*XrayUpdateRequest) Descriptor() ([]byte, []int) {
-	return file_vpner_proto_rawDescGZIP(), []int{17}
+	return file_vpner_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *XrayUpdateRequest) GetChainName() string {
@@ -1164,7 +1284,7 @@ type XrayRequest struct {
 
 func (x *XrayRequest) Reset() {
 	*x = XrayRequest{}
-	mi := &file_vpner_proto_msgTypes[18]
+	mi := &file_vpner_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1176,7 +1296,7 @@ func (x *XrayRequest) String() string {
 func (*XrayRequest) ProtoMessage() {}
 
 func (x *XrayRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vpner_proto_msgTypes[18]
+	mi := &file_vpner_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1189,7 +1309,7 @@ func (x *XrayRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use XrayRequest.ProtoReflect.Descriptor instead.
 func (*XrayRequest) Descriptor() ([]byte, []int) {
-	return file_vpner_proto_rawDescGZIP(), []int{18}
+	return file_vpner_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *XrayRequest) GetChainName() string {
@@ -1209,7 +1329,7 @@ type XrayManageRequest struct {
 
 func (x *XrayManageRequest) Reset() {
 	*x = XrayManageRequest{}
-	mi := &file_vpner_proto_msgTypes[19]
+	mi := &file_vpner_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1221,7 +1341,7 @@ func (x *XrayManageRequest) String() string {
 func (*XrayManageRequest) ProtoMessage() {}
 
 func (x *XrayManageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vpner_proto_msgTypes[19]
+	mi := &file_vpner_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1234,7 +1354,7 @@ func (x *XrayManageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use XrayManageRequest.ProtoReflect.Descriptor instead.
 func (*XrayManageRequest) Descriptor() ([]byte, []int) {
-	return file_vpner_proto_rawDescGZIP(), []int{19}
+	return file_vpner_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *XrayManageRequest) GetChainName() string {
@@ -1261,7 +1381,7 @@ type XrayAutoRunRequest struct {
 
 func (x *XrayAutoRunRequest) Reset() {
 	*x = XrayAutoRunRequest{}
-	mi := &file_vpner_proto_msgTypes[20]
+	mi := &file_vpner_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1273,7 +1393,7 @@ func (x *XrayAutoRunRequest) String() string {
 func (*XrayAutoRunRequest) ProtoMessage() {}
 
 func (x *XrayAutoRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_vpner_proto_msgTypes[20]
+	mi := &file_vpner_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1286,7 +1406,7 @@ func (x *XrayAutoRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use XrayAutoRunRequest.ProtoReflect.Descriptor instead.
 func (*XrayAutoRunRequest) Descriptor() ([]byte, []int) {
-	return file_vpner_proto_rawDescGZIP(), []int{20}
+	return file_vpner_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *XrayAutoRunRequest) GetChainName() string {
@@ -1312,7 +1432,7 @@ type XrayListResponse struct {
 
 func (x *XrayListResponse) Reset() {
 	*x = XrayListResponse{}
-	mi := &file_vpner_proto_msgTypes[21]
+	mi := &file_vpner_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1324,7 +1444,7 @@ func (x *XrayListResponse) String() string {
 func (*XrayListResponse) ProtoMessage() {}
 
 func (x *XrayListResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_vpner_proto_msgTypes[21]
+	mi := &file_vpner_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1337,7 +1457,7 @@ func (x *XrayListResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use XrayListResponse.ProtoReflect.Descriptor instead.
 func (*XrayListResponse) Descriptor() ([]byte, []int) {
-	return file_vpner_proto_rawDescGZIP(), []int{21}
+	return file_vpner_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *XrayListResponse) GetList() []*XrayInfo {
@@ -1351,7 +1471,7 @@ var File_vpner_proto protoreflect.FileDescriptor
 
 const file_vpner_proto_rawDesc = "" +
 	"\n" +
-	"\vvpner.proto\x12\x05vpner\x1a\x10structures.proto\"\xbf\x04\n" +
+	"\vvpner.proto\x12\x05vpner\x1a\x10structures.proto\"\xff\x04\n" +
 	"\x0eStatusResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\tR\aversion\x12%\n" +
 	"\x0euptime_seconds\x18\x02 \x01(\x03R\ruptimeSeconds\x12\x1f\n" +
@@ -1369,7 +1489,17 @@ const file_vpner_proto_rawDesc = "" +
 	" \x03(\v2\x0f.vpner.LogEventR\frecentEvents\x12(\n" +
 	"\x10ipset_entries_v4\x18\v \x01(\x03R\x0eipsetEntriesV4\x12(\n" +
 	"\x10ipset_entries_v6\x18\f \x01(\x03R\x0eipsetEntriesV6\x128\n" +
-	"\rruntime_stats\x18\r \x01(\v2\x13.vpner.RuntimeStatsR\fruntimeStats\"\xe0\x01\n" +
+	"\rruntime_stats\x18\r \x01(\v2\x13.vpner.RuntimeStatsR\fruntimeStats\x12>\n" +
+	"\rdefault_route\x18\x0e \x01(\v2\x19.vpner.DefaultRouteStatusR\fdefaultRoute\"4\n" +
+	"\x13DefaultRouteRequest\x12\x1d\n" +
+	"\n" +
+	"chain_name\x18\x01 \x01(\tR\tchainName\"w\n" +
+	"\x12DefaultRouteStatus\x12\x1d\n" +
+	"\n" +
+	"chain_name\x18\x01 \x01(\tR\tchainName\x12\x12\n" +
+	"\x04type\x18\x02 \x01(\tR\x04type\x12\x16\n" +
+	"\x06active\x18\x03 \x01(\bR\x06active\x12\x16\n" +
+	"\x06reason\x18\x04 \x01(\tR\x06reason\"\xe0\x01\n" +
 	"\fRuntimeStats\x12(\n" +
 	"\x10heap_alloc_bytes\x18\x01 \x01(\x04R\x0eheapAllocBytes\x12$\n" +
 	"\x0eheap_sys_bytes\x18\x02 \x01(\x04R\fheapSysBytes\x12\x1b\n" +
@@ -1453,7 +1583,7 @@ const file_vpner_proto_rawDesc = "" +
 	"chain_name\x18\x01 \x01(\tR\tchainName\x12\x19\n" +
 	"\bauto_run\x18\x02 \x01(\bR\aautoRun\"<\n" +
 	"\x10XrayListResponse\x12(\n" +
-	"\x04list\x18\x01 \x03(\v2\x14.structures.XrayInfoR\x04list2\xcb\b\n" +
+	"\x04list\x18\x01 \x03(\v2\x14.structures.XrayInfoR\x04list2\x92\t\n" +
 	"\fVpnerManager\x127\n" +
 	"\vUnblockList\x12\f.vpner.Empty\x1a\x1a.vpner.UnblockListResponse\x12>\n" +
 	"\n" +
@@ -1478,7 +1608,8 @@ const file_vpner_proto_rawDesc = "" +
 	"\x0eXraySetAutorun\x12\x19.vpner.XrayAutoRunRequest\x1a\x16.vpner.GenericResponse\x123\n" +
 	"\vHookRestore\x12\f.vpner.Empty\x1a\x16.vpner.GenericResponse\x12-\n" +
 	"\x06Status\x12\f.vpner.Empty\x1a\x15.vpner.StatusResponse\x121\n" +
-	"\tSyncRules\x12\f.vpner.Empty\x1a\x16.vpner.GenericResponseB,Z*github.com/ApostolDmitry/vpner/proto;protob\x06proto3"
+	"\tSyncRules\x12\f.vpner.Empty\x1a\x16.vpner.GenericResponse\x12E\n" +
+	"\x0fSetDefaultRoute\x12\x1a.vpner.DefaultRouteRequest\x1a\x16.vpner.GenericResponseB,Z*github.com/ApostolDmitry/vpner/proto;protob\x06proto3"
 
 var (
 	file_vpner_proto_rawDescOnce sync.Once
@@ -1492,89 +1623,94 @@ func file_vpner_proto_rawDescGZIP() []byte {
 	return file_vpner_proto_rawDescData
 }
 
-var file_vpner_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
+var file_vpner_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_vpner_proto_goTypes = []any{
 	(*StatusResponse)(nil),         // 0: vpner.StatusResponse
-	(*RuntimeStats)(nil),           // 1: vpner.RuntimeStats
-	(*QueryStats)(nil),             // 2: vpner.QueryStats
-	(*LogEvent)(nil),               // 3: vpner.LogEvent
-	(*ChainStatus)(nil),            // 4: vpner.ChainStatus
-	(*DohServerStatus)(nil),        // 5: vpner.DohServerStatus
-	(*Empty)(nil),                  // 6: vpner.Empty
-	(*GenericResponse)(nil),        // 7: vpner.GenericResponse
-	(*Success)(nil),                // 8: vpner.Success
-	(*Error)(nil),                  // 9: vpner.Error
-	(*UnblockListResponse)(nil),    // 10: vpner.UnblockListResponse
-	(*UnblockAddRequest)(nil),      // 11: vpner.UnblockAddRequest
-	(*UnblockDelRequest)(nil),      // 12: vpner.UnblockDelRequest
-	(*InterfaceListResponse)(nil),  // 13: vpner.InterfaceListResponse
-	(*InterfaceActionRequest)(nil), // 14: vpner.InterfaceActionRequest
-	(*ManageRequest)(nil),          // 15: vpner.ManageRequest
-	(*XrayCreateRequest)(nil),      // 16: vpner.XrayCreateRequest
-	(*XrayUpdateRequest)(nil),      // 17: vpner.XrayUpdateRequest
-	(*XrayRequest)(nil),            // 18: vpner.XrayRequest
-	(*XrayManageRequest)(nil),      // 19: vpner.XrayManageRequest
-	(*XrayAutoRunRequest)(nil),     // 20: vpner.XrayAutoRunRequest
-	(*XrayListResponse)(nil),       // 21: vpner.XrayListResponse
-	(*UnblockInfo)(nil),            // 22: structures.UnblockInfo
-	(*InterfaceInfo)(nil),          // 23: structures.InterfaceInfo
-	(ManageAction)(0),              // 24: structures.ManageAction
-	(*XrayInfo)(nil),               // 25: structures.XrayInfo
+	(*DefaultRouteRequest)(nil),    // 1: vpner.DefaultRouteRequest
+	(*DefaultRouteStatus)(nil),     // 2: vpner.DefaultRouteStatus
+	(*RuntimeStats)(nil),           // 3: vpner.RuntimeStats
+	(*QueryStats)(nil),             // 4: vpner.QueryStats
+	(*LogEvent)(nil),               // 5: vpner.LogEvent
+	(*ChainStatus)(nil),            // 6: vpner.ChainStatus
+	(*DohServerStatus)(nil),        // 7: vpner.DohServerStatus
+	(*Empty)(nil),                  // 8: vpner.Empty
+	(*GenericResponse)(nil),        // 9: vpner.GenericResponse
+	(*Success)(nil),                // 10: vpner.Success
+	(*Error)(nil),                  // 11: vpner.Error
+	(*UnblockListResponse)(nil),    // 12: vpner.UnblockListResponse
+	(*UnblockAddRequest)(nil),      // 13: vpner.UnblockAddRequest
+	(*UnblockDelRequest)(nil),      // 14: vpner.UnblockDelRequest
+	(*InterfaceListResponse)(nil),  // 15: vpner.InterfaceListResponse
+	(*InterfaceActionRequest)(nil), // 16: vpner.InterfaceActionRequest
+	(*ManageRequest)(nil),          // 17: vpner.ManageRequest
+	(*XrayCreateRequest)(nil),      // 18: vpner.XrayCreateRequest
+	(*XrayUpdateRequest)(nil),      // 19: vpner.XrayUpdateRequest
+	(*XrayRequest)(nil),            // 20: vpner.XrayRequest
+	(*XrayManageRequest)(nil),      // 21: vpner.XrayManageRequest
+	(*XrayAutoRunRequest)(nil),     // 22: vpner.XrayAutoRunRequest
+	(*XrayListResponse)(nil),       // 23: vpner.XrayListResponse
+	(*UnblockInfo)(nil),            // 24: structures.UnblockInfo
+	(*InterfaceInfo)(nil),          // 25: structures.InterfaceInfo
+	(ManageAction)(0),              // 26: structures.ManageAction
+	(*XrayInfo)(nil),               // 27: structures.XrayInfo
 }
 var file_vpner_proto_depIdxs = []int32{
-	4,  // 0: vpner.StatusResponse.chains:type_name -> vpner.ChainStatus
-	5,  // 1: vpner.StatusResponse.doh_servers:type_name -> vpner.DohServerStatus
-	2,  // 2: vpner.StatusResponse.query_stats:type_name -> vpner.QueryStats
-	3,  // 3: vpner.StatusResponse.recent_events:type_name -> vpner.LogEvent
-	1,  // 4: vpner.StatusResponse.runtime_stats:type_name -> vpner.RuntimeStats
-	8,  // 5: vpner.GenericResponse.success:type_name -> vpner.Success
-	9,  // 6: vpner.GenericResponse.error:type_name -> vpner.Error
-	22, // 7: vpner.UnblockListResponse.rules:type_name -> structures.UnblockInfo
-	23, // 8: vpner.InterfaceListResponse.interfaces:type_name -> structures.InterfaceInfo
-	24, // 9: vpner.ManageRequest.act:type_name -> structures.ManageAction
-	24, // 10: vpner.XrayManageRequest.act:type_name -> structures.ManageAction
-	25, // 11: vpner.XrayListResponse.list:type_name -> structures.XrayInfo
-	6,  // 12: vpner.VpnerManager.UnblockList:input_type -> vpner.Empty
-	11, // 13: vpner.VpnerManager.UnblockAdd:input_type -> vpner.UnblockAddRequest
-	12, // 14: vpner.VpnerManager.UnblockDel:input_type -> vpner.UnblockDelRequest
-	6,  // 15: vpner.VpnerManager.InterfaceList:input_type -> vpner.Empty
-	6,  // 16: vpner.VpnerManager.InterfaceScan:input_type -> vpner.Empty
-	14, // 17: vpner.VpnerManager.InterfaceAdd:input_type -> vpner.InterfaceActionRequest
-	14, // 18: vpner.VpnerManager.InterfaceDel:input_type -> vpner.InterfaceActionRequest
-	15, // 19: vpner.VpnerManager.DnsManage:input_type -> vpner.ManageRequest
-	16, // 20: vpner.VpnerManager.XrayCreate:input_type -> vpner.XrayCreateRequest
-	17, // 21: vpner.VpnerManager.XrayUpdate:input_type -> vpner.XrayUpdateRequest
-	18, // 22: vpner.VpnerManager.XrayDelete:input_type -> vpner.XrayRequest
-	6,  // 23: vpner.VpnerManager.XrayList:input_type -> vpner.Empty
-	19, // 24: vpner.VpnerManager.XrayManage:input_type -> vpner.XrayManageRequest
-	18, // 25: vpner.VpnerManager.XrayTest:input_type -> vpner.XrayRequest
-	20, // 26: vpner.VpnerManager.XraySetAutorun:input_type -> vpner.XrayAutoRunRequest
-	6,  // 27: vpner.VpnerManager.HookRestore:input_type -> vpner.Empty
-	6,  // 28: vpner.VpnerManager.Status:input_type -> vpner.Empty
-	6,  // 29: vpner.VpnerManager.SyncRules:input_type -> vpner.Empty
-	10, // 30: vpner.VpnerManager.UnblockList:output_type -> vpner.UnblockListResponse
-	7,  // 31: vpner.VpnerManager.UnblockAdd:output_type -> vpner.GenericResponse
-	7,  // 32: vpner.VpnerManager.UnblockDel:output_type -> vpner.GenericResponse
-	13, // 33: vpner.VpnerManager.InterfaceList:output_type -> vpner.InterfaceListResponse
-	13, // 34: vpner.VpnerManager.InterfaceScan:output_type -> vpner.InterfaceListResponse
-	7,  // 35: vpner.VpnerManager.InterfaceAdd:output_type -> vpner.GenericResponse
-	7,  // 36: vpner.VpnerManager.InterfaceDel:output_type -> vpner.GenericResponse
-	7,  // 37: vpner.VpnerManager.DnsManage:output_type -> vpner.GenericResponse
-	7,  // 38: vpner.VpnerManager.XrayCreate:output_type -> vpner.GenericResponse
-	7,  // 39: vpner.VpnerManager.XrayUpdate:output_type -> vpner.GenericResponse
-	7,  // 40: vpner.VpnerManager.XrayDelete:output_type -> vpner.GenericResponse
-	21, // 41: vpner.VpnerManager.XrayList:output_type -> vpner.XrayListResponse
-	7,  // 42: vpner.VpnerManager.XrayManage:output_type -> vpner.GenericResponse
-	7,  // 43: vpner.VpnerManager.XrayTest:output_type -> vpner.GenericResponse
-	7,  // 44: vpner.VpnerManager.XraySetAutorun:output_type -> vpner.GenericResponse
-	7,  // 45: vpner.VpnerManager.HookRestore:output_type -> vpner.GenericResponse
-	0,  // 46: vpner.VpnerManager.Status:output_type -> vpner.StatusResponse
-	7,  // 47: vpner.VpnerManager.SyncRules:output_type -> vpner.GenericResponse
-	30, // [30:48] is the sub-list for method output_type
-	12, // [12:30] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	6,  // 0: vpner.StatusResponse.chains:type_name -> vpner.ChainStatus
+	7,  // 1: vpner.StatusResponse.doh_servers:type_name -> vpner.DohServerStatus
+	4,  // 2: vpner.StatusResponse.query_stats:type_name -> vpner.QueryStats
+	5,  // 3: vpner.StatusResponse.recent_events:type_name -> vpner.LogEvent
+	3,  // 4: vpner.StatusResponse.runtime_stats:type_name -> vpner.RuntimeStats
+	2,  // 5: vpner.StatusResponse.default_route:type_name -> vpner.DefaultRouteStatus
+	10, // 6: vpner.GenericResponse.success:type_name -> vpner.Success
+	11, // 7: vpner.GenericResponse.error:type_name -> vpner.Error
+	24, // 8: vpner.UnblockListResponse.rules:type_name -> structures.UnblockInfo
+	25, // 9: vpner.InterfaceListResponse.interfaces:type_name -> structures.InterfaceInfo
+	26, // 10: vpner.ManageRequest.act:type_name -> structures.ManageAction
+	26, // 11: vpner.XrayManageRequest.act:type_name -> structures.ManageAction
+	27, // 12: vpner.XrayListResponse.list:type_name -> structures.XrayInfo
+	8,  // 13: vpner.VpnerManager.UnblockList:input_type -> vpner.Empty
+	13, // 14: vpner.VpnerManager.UnblockAdd:input_type -> vpner.UnblockAddRequest
+	14, // 15: vpner.VpnerManager.UnblockDel:input_type -> vpner.UnblockDelRequest
+	8,  // 16: vpner.VpnerManager.InterfaceList:input_type -> vpner.Empty
+	8,  // 17: vpner.VpnerManager.InterfaceScan:input_type -> vpner.Empty
+	16, // 18: vpner.VpnerManager.InterfaceAdd:input_type -> vpner.InterfaceActionRequest
+	16, // 19: vpner.VpnerManager.InterfaceDel:input_type -> vpner.InterfaceActionRequest
+	17, // 20: vpner.VpnerManager.DnsManage:input_type -> vpner.ManageRequest
+	18, // 21: vpner.VpnerManager.XrayCreate:input_type -> vpner.XrayCreateRequest
+	19, // 22: vpner.VpnerManager.XrayUpdate:input_type -> vpner.XrayUpdateRequest
+	20, // 23: vpner.VpnerManager.XrayDelete:input_type -> vpner.XrayRequest
+	8,  // 24: vpner.VpnerManager.XrayList:input_type -> vpner.Empty
+	21, // 25: vpner.VpnerManager.XrayManage:input_type -> vpner.XrayManageRequest
+	20, // 26: vpner.VpnerManager.XrayTest:input_type -> vpner.XrayRequest
+	22, // 27: vpner.VpnerManager.XraySetAutorun:input_type -> vpner.XrayAutoRunRequest
+	8,  // 28: vpner.VpnerManager.HookRestore:input_type -> vpner.Empty
+	8,  // 29: vpner.VpnerManager.Status:input_type -> vpner.Empty
+	8,  // 30: vpner.VpnerManager.SyncRules:input_type -> vpner.Empty
+	1,  // 31: vpner.VpnerManager.SetDefaultRoute:input_type -> vpner.DefaultRouteRequest
+	12, // 32: vpner.VpnerManager.UnblockList:output_type -> vpner.UnblockListResponse
+	9,  // 33: vpner.VpnerManager.UnblockAdd:output_type -> vpner.GenericResponse
+	9,  // 34: vpner.VpnerManager.UnblockDel:output_type -> vpner.GenericResponse
+	15, // 35: vpner.VpnerManager.InterfaceList:output_type -> vpner.InterfaceListResponse
+	15, // 36: vpner.VpnerManager.InterfaceScan:output_type -> vpner.InterfaceListResponse
+	9,  // 37: vpner.VpnerManager.InterfaceAdd:output_type -> vpner.GenericResponse
+	9,  // 38: vpner.VpnerManager.InterfaceDel:output_type -> vpner.GenericResponse
+	9,  // 39: vpner.VpnerManager.DnsManage:output_type -> vpner.GenericResponse
+	9,  // 40: vpner.VpnerManager.XrayCreate:output_type -> vpner.GenericResponse
+	9,  // 41: vpner.VpnerManager.XrayUpdate:output_type -> vpner.GenericResponse
+	9,  // 42: vpner.VpnerManager.XrayDelete:output_type -> vpner.GenericResponse
+	23, // 43: vpner.VpnerManager.XrayList:output_type -> vpner.XrayListResponse
+	9,  // 44: vpner.VpnerManager.XrayManage:output_type -> vpner.GenericResponse
+	9,  // 45: vpner.VpnerManager.XrayTest:output_type -> vpner.GenericResponse
+	9,  // 46: vpner.VpnerManager.XraySetAutorun:output_type -> vpner.GenericResponse
+	9,  // 47: vpner.VpnerManager.HookRestore:output_type -> vpner.GenericResponse
+	0,  // 48: vpner.VpnerManager.Status:output_type -> vpner.StatusResponse
+	9,  // 49: vpner.VpnerManager.SyncRules:output_type -> vpner.GenericResponse
+	9,  // 50: vpner.VpnerManager.SetDefaultRoute:output_type -> vpner.GenericResponse
+	32, // [32:51] is the sub-list for method output_type
+	13, // [13:32] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_vpner_proto_init() }
@@ -1583,7 +1719,7 @@ func file_vpner_proto_init() {
 		return
 	}
 	file_structures_proto_init()
-	file_vpner_proto_msgTypes[7].OneofWrappers = []any{
+	file_vpner_proto_msgTypes[9].OneofWrappers = []any{
 		(*GenericResponse_Success)(nil),
 		(*GenericResponse_Error)(nil),
 	}
@@ -1593,7 +1729,7 @@ func file_vpner_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_vpner_proto_rawDesc), len(file_vpner_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   22,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
